@@ -9,11 +9,19 @@ use crate::state::App;
 #[derive(BotCommands, Clone)]
 #[command(rename_rule = "lowercase")]
 enum Command {
-    #[command(description = "help")]
+    #[command(description = "помощь")]
     Help,
-    #[command(description = "gen <days> <user_id>", parse_with = "split")]
+    #[command(description = "создать ключ: gen <days> <user_id>", parse_with = "split")]
     Gen(i64, i64),
-    #[command(description = "backup")]
+    #[command(description = "забанить ключ: ban <key>")]
+    Ban(String),
+    #[command(description = "разбанить ключ: unban <key>")]
+    Unban(String),
+    #[command(description = "инфо о ключе: info <key>")]
+    Info(String),
+    #[command(description = "статистика сервера")]
+    Stats,
+    #[command(description = "скачать бэкап базы")]
     Backup,
 }
 
@@ -52,6 +60,59 @@ async fn update(app: App, bot: Bot, msg: Message, cmd: Command) -> ResponseResul
                 let _ = bot.send_document(msg.chat.id, InputFile::file("licenses.db")).await;
                 bot.send_message(msg.chat.id, format!("Backup failed: {err:?}")).await?;
             }
+        }
+
+        Command::Ban(key) => {
+            let res = sqlx::query!("UPDATE licenses SET is_blocked = TRUE WHERE key = ?", key)
+                .execute(&app.db)
+                .await;
+            app.sessions.remove(&key);
+            bot.send_message(msg.chat.id, "🚫 Key blocked and sessions dropped").await?;
+        }
+        Command::Unban(key) => {
+            sqlx::query!("UPDATE licenses SET is_blocked = FALSE WHERE key = ?", key)
+                .execute(&app.db)
+                .await;
+            bot.send_message(msg.chat.id, "✅ Key unblocked").await?;
+        }
+        Command::Info(key) => {
+            let active =
+                if let Some(sessions) = app.sessions.get(&key) { sessions.len() } else { 0 };
+
+            let lic = sqlx::query!(
+                "SELECT tg_user_id, expires_at, is_blocked FROM licenses WHERE key = ?",
+                key
+            )
+            .fetch_optional(&app.db)
+            .await;
+
+            match lic {
+                Ok(Some(l)) => {
+                    let status = if l.is_blocked { "⛔ BLOCKED" } else { "Active" };
+                    let response = format!(
+                        "🔑 <b>Key Info</b>\nOwner: <code>{}</code>\nExpires: {}\nStatus: {}\nActive Sessions: {}",
+                        l.tg_user_id, l.expires_at, status, active
+                    );
+                    bot.send_message(msg.chat.id, response).parse_mode(ParseMode::Html).await?;
+                }
+                _ => {
+                    bot.send_message(msg.chat.id, "Key not found").await?;
+                }
+            }
+        }
+        Command::Stats => {
+            let active_keys = app.sessions.len();
+            let total_sessions: usize = app.sessions.iter().map(|entry| entry.value().len()).sum();
+
+            bot.send_message(
+                msg.chat.id,
+                format!(
+                    "📊 <b>System Stats</b>\nActive Keys Online: {}\nTotal Sessions (Windows): {}",
+                    active_keys, total_sessions
+                ),
+            )
+            .parse_mode(ParseMode::Html)
+            .await?;
         }
     };
     respond(())
