@@ -29,6 +29,11 @@ impl App {
     admins: HashSet<i64>,
     secret: String,
   ) -> Self {
+    let options = SqliteConnectOptions::from_str(db_url)
+      .expect("Неверный формат DATABASE_URL")
+      .create_if_missing(true) 
+      .journal_mode(SqliteJournalMode::Wal);
+
     let db = SqlitePool::connect(db_url).await.expect("DB fail");
 
     sqlx::migrate!("./migrations").run(&db).await.expect("Migrations failed");
