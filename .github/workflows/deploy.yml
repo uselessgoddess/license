@@ -22,8 +22,14 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Install musl-tools for linker
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Add musl target for static linking
+        run: rustup target add x86_64-unknown-linux-musl
 
       - name: Build Release (statis)
         run: cargo build --release --target x86_64-unknown-linux-musl
