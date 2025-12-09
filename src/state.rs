@@ -8,7 +8,8 @@ use teloxide::prelude::*;
 use teloxide::types::InputFile;
 use tokio::fs;
 
-use crate::model::Session;
+use crate::model::{License, Session};
+use crate::{DateTime, Duration, Utc};
 
 pub type Sessions = DashMap<String, Vec<Session>>;
 
@@ -58,5 +59,77 @@ impl App {
     let _ = fs::remove_file(path).await;
 
     Ok(())
+  }
+
+  pub async fn create_license(&self, user_id: i64) -> sqlx::Result<String> {
+    let key = uuid::Uuid::new_v4().to_string();
+    let exp = Utc::now().naive_utc();
+
+    sqlx::query!(
+      "INSERT INTO licenses (key, tg_user_id, expires_at) VALUES (?, ?, ?)",
+      key,
+      user_id,
+      exp
+    )
+    .execute(&self.db)
+    .await?;
+
+    Ok(key)
+  }
+
+  pub async fn extend_license(
+    &self,
+    key: &str,
+    days: i64,
+  ) -> Result<DateTime, String> {
+    let mut tx = self.db.begin().await.map_err(|e| e.to_string())?;
+
+    let Some(rec) =
+      sqlx::query!("SELECT expires_at FROM licenses WHERE key = ?", key)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?
+    else {
+      return Err("Key not found".to_string());
+    };
+
+    let now = Utc::now().naive_utc();
+
+    let base_time = if rec.expires_at < now { now } else { rec.expires_at };
+    let new_exp = base_time + Duration::from_hours(24 * days as u64);
+
+    sqlx::query!(
+      "UPDATE licenses SET expires_at = ?, is_blocked = FALSE WHERE key = ?",
+      new_exp,
+      key
+    )
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    tx.commit().await.map_err(|e| e.to_string())?;
+    Ok(new_exp)
+  }
+
+  pub async fn set_ban(&self, key: &str, blocked: bool) -> sqlx::Result<()> {
+    sqlx::query!(
+      "UPDATE licenses SET is_blocked = ? WHERE key = ?",
+      blocked,
+      key
+    )
+    .execute(&self.db)
+    .await?;
+
+    if blocked {
+      self.sessions.remove(key);
+    }
+
+    Ok(())
+  }
+
+  pub async fn license_info(&self, key: &str) -> sqlx::Result<Option<License>> {
+    sqlx::query_as!(License, "SELECT * FROM licenses WHERE key = ?", key)
+      .fetch_optional(&self.db)
+      .await
   }
 }
