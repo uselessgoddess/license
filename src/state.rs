@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::path::Path;
+use std::str::FromStr;
 
 use dashmap::DashMap;
 use sqlx::SqlitePool;
@@ -7,6 +8,7 @@ use teloxide::Bot;
 use teloxide::prelude::*;
 use teloxide::types::InputFile;
 use tokio::fs;
+use sqlx::sqlite::{SqliteJournalMode, SqliteConnectOptions};
 
 use crate::model::{License, Session};
 use crate::{DateTime, Duration, Utc};
@@ -30,11 +32,11 @@ impl App {
     secret: String,
   ) -> Self {
     let options = SqliteConnectOptions::from_str(db_url)
-      .expect("Неверный формат DATABASE_URL")
+      .expect("invalid `DATABASE_URL`")
       .create_if_missing(true) 
       .journal_mode(SqliteJournalMode::Wal);
 
-    let db = SqlitePool::connect(db_url).await.expect("DB fail");
+    let db = SqlitePool::connect_with(options).await.expect("DB fail");
 
     sqlx::migrate!("./migrations").run(&db).await.expect("Migrations failed");
 
