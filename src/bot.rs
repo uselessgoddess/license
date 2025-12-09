@@ -141,7 +141,6 @@ pub async fn run_bot(app: Arc<App>) {
   );
 
   Dispatcher::builder(bot, handler)
-    .enable_ctrlc_handler()
     .build()
     .dispatch()
     .await;
