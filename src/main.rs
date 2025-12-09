@@ -6,6 +6,7 @@ mod state;
 use std::collections::HashSet;
 use std::env;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Router;
@@ -26,8 +27,9 @@ async fn main() {
 
     let db_url = env::var("DATABASE_URL").unwrap_or("sqlite:licenses.db".into());
     let token = env::var("TELOXIDE_TOKEN").expect("No token");
+    let secret = env::var("SERVER_SECRET").expect("No secret");
 
-    let app_state = App::new(&db_url, &token, admins).await;
+    let app_state = Arc::new(App::new(&db_url, &token, admins, secret).await);
 
     let bot_state = app_state.clone();
     tokio::spawn(async move {

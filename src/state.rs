@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 use std::path::Path;
-use std::sync::Arc;
 
 use dashmap::DashMap;
 use sqlx::SqlitePool;
@@ -17,17 +16,18 @@ pub type Sessions = DashMap<String, Vec<Session>>;
 pub struct App {
     pub db: SqlitePool,
     pub bot: Bot,
-    pub admins: Arc<HashSet<i64>>,
+    pub admins: HashSet<i64>,
     pub sessions: Sessions,
+    pub secret: String,
 }
 
 impl App {
-    pub async fn new(db_url: &str, bot_token: &str, admins: HashSet<i64>) -> Self {
+    pub async fn new(db_url: &str, bot_token: &str, admins: HashSet<i64>, secret: String) -> Self {
         let db = SqlitePool::connect(db_url).await.expect("DB fail");
 
         sqlx::migrate!("./migrations").run(&db).await.expect("Migrations failed");
 
-        Self { db, sessions: DashMap::new(), bot: Bot::new(bot_token), admins: Arc::new(admins) }
+        Self { db, sessions: DashMap::new(), bot: Bot::new(bot_token), admins, secret }
     }
 
     pub async fn perform_backup(&self, chat_id: teloxide::types::ChatId) -> anyhow::Result<()> {

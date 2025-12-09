@@ -17,8 +17,9 @@ pub struct Session {
     pub last_seen: DateTime,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct HeartbeatReq {
     pub key: String,
     pub machine_id: String,
+    pub session_id: String,
 }

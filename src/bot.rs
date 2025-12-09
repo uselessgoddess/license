@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use chrono::{Duration, Utc};
 use teloxide::prelude::*;
 use teloxide::types::{InputFile, ParseMode};
@@ -25,10 +27,12 @@ enum Command {
     Backup,
 }
 
-async fn update(app: App, bot: Bot, msg: Message, cmd: Command) -> ResponseResult<()> {
+async fn update(app: Arc<App>, bot: Bot, msg: Message, cmd: Command) -> ResponseResult<()> {
     if !app.admins.contains(&msg.chat.id.0) {
         return Ok(());
     }
+
+    let _ = bot.set_my_commands(Command::bot_commands()).await;
 
     match cmd {
         Command::Help => {
@@ -63,14 +67,14 @@ async fn update(app: App, bot: Bot, msg: Message, cmd: Command) -> ResponseResul
         }
 
         Command::Ban(key) => {
-            let res = sqlx::query!("UPDATE licenses SET is_blocked = TRUE WHERE key = ?", key)
+            let _res = sqlx::query!("UPDATE licenses SET is_blocked = TRUE WHERE key = ?", key)
                 .execute(&app.db)
                 .await;
             app.sessions.remove(&key);
             bot.send_message(msg.chat.id, "🚫 Key blocked and sessions dropped").await?;
         }
         Command::Unban(key) => {
-            sqlx::query!("UPDATE licenses SET is_blocked = FALSE WHERE key = ?", key)
+            let _ = sqlx::query!("UPDATE licenses SET is_blocked = FALSE WHERE key = ?", key)
                 .execute(&app.db)
                 .await;
             bot.send_message(msg.chat.id, "✅ Key unblocked").await?;
@@ -118,7 +122,7 @@ async fn update(app: App, bot: Bot, msg: Message, cmd: Command) -> ResponseResul
     respond(())
 }
 
-pub async fn run_bot(app: App) {
+pub async fn run_bot(app: Arc<App>) {
     let bot = app.bot.clone();
     let handler = Update::filter_message().filter_command::<Command>().endpoint(
         move |bot: Bot, msg: Message, cmd: Command| {
