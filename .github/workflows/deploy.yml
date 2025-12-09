@@ -22,11 +22,17 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Install musl-tools for linker
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Build Release
-        run: cargo build --release
+      - name: Add musl target for static linking
+        run: rustup target add x86_64-unknown-linux-musl
+
+      - name: Build Release (statis)
+        run: cargo build --release --target x86_64-unknown-linux-musl
 
       - name: Copy binary to VPS
         uses: appleboy/scp-action@master
@@ -34,9 +40,9 @@ jobs:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_KEY }}
-          source: "target/release/license"
+          source: "target/x86_64-unknown-linux-musl/release/license"
           target: "/home/deploy/license-server"
-          strip_components: 2 # remove `/target/release`
+          strip_components: 3 # strip `/target/x86_../release`
 
       - name: Restart Service
         uses: appleboy/ssh-action@master
