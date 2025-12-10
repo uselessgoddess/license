@@ -79,6 +79,8 @@ impl App {
     let new_hash = hash_of(&content);
     let old_hash = self.backup_hash.load(Ordering::Relaxed);
 
+    self.backup_hash.store(new_hash, Ordering::Relaxed);
+
     // FIXME: 0 is hardcoded as fresh start hash
     if new_hash == old_hash || old_hash == 0 /* fresh start */ {
       debug!("No changes in DB, skipping backup");
