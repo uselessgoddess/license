@@ -69,22 +69,22 @@ impl BotExt for Bot {
 }
 
 fn help_text(admin: bool) -> String {
-  let mut text = String::new();
+  let mut text = String::from("<b>YACSP Panel</b>\n\n");
 
   text.push_str("/start - Start bot\n");
-  text.push_str("/freeweek - 🎁 Try 7 days for free!\n");
+  text.push_str("/freeweek - 🎁 Try week for free!\n");
   text.push_str("/mykey - Your licenses\n");
   text.push_str("/help - Show this menu\n");
 
   if admin {
     text.push_str("\n<b>Admin Commands:</b>\n");
-    text.push_str("/gen <id> <days?> - Generate key\n");
-    text.push_str("/buy <key> <days> - Extend key\n");
-    text.push_str("/ban <key> - Block key\n");
-    text.push_str("/unban <key> - Unblock key\n");
-    text.push_str("/info <key> - Key info\n");
-    text.push_str("/stats - Statistics\n");
-    text.push_str("/backup - Download DB\n");
+    text.push_str("/gen <code>id</code> <code>days?</code> - generate key\n");
+    text.push_str("/buy <code>key</code> <code>days</code> - extend key\n");
+    text.push_str("/ban <code>key</code> - block key\n");
+    text.push_str("/unban <code>key</code> - unblock key\n");
+    text.push_str("/info <code>key</code> - key info\n");
+    text.push_str("/stats - server stats\n");
+    text.push_str("/backup - force backup db\n");
   }
 
   text
@@ -110,6 +110,7 @@ async fn update(
     }
     Command::Help => {
       let text = help_text(is_admin);
+      error!(text);
       bot.reply_to(msg.chat.id, text).await?;
     }
     Command::MyKey => {
