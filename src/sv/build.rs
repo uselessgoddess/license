@@ -1,11 +1,9 @@
 use crate::{entity::*, prelude::*};
 
-#[allow(dead_code)]
 pub struct Build<'a> {
   db: &'a DatabaseConnection,
 }
 
-#[allow(dead_code)]
 impl<'a> Build<'a> {
   pub fn new(db: &'a DatabaseConnection) -> Self {
     Self { db }
@@ -21,12 +19,12 @@ impl<'a> Build<'a> {
   }
 
   pub async fn by_version(
-    db: &DatabaseConnection,
+    &self,
     version: &str,
   ) -> Result<Option<build::Model>> {
     let build = build::Entity::find()
       .filter(build::Column::Version.eq(version))
-      .one(db)
+      .one(self.db)
       .await?;
     Ok(build)
   }
@@ -87,5 +85,24 @@ impl<'a> Build<'a> {
       .await?;
 
     Ok(builds)
+  }
+
+  pub async fn count(&self) -> Result<u64> {
+    let count = build::Entity::find().count(self.db).await?;
+    Ok(count)
+  }
+
+  pub async fn total_downloads(&self) -> Result<u64> {
+    use sea_orm::QuerySelect;
+    use sea_orm::sea_query::Expr;
+
+    let result: Option<i64> = build::Entity::find()
+      .select_only()
+      .column_as(Expr::col(build::Column::Downloads).sum(), "total")
+      .into_tuple()
+      .one(self.db)
+      .await?;
+
+    Ok(result.unwrap_or(0) as u64)
   }
 }

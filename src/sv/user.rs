@@ -27,4 +27,9 @@ impl<'a> User<'a> {
     let user = user::Entity::find_by_id(tg_user_id).one(self.db).await?;
     Ok(user)
   }
+
+  pub async fn count(&self) -> Result<u64> {
+    let count = user::Entity::find().count(self.db).await?;
+    Ok(count)
+  }
 }

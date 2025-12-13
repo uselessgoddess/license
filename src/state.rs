@@ -26,7 +26,6 @@ pub struct Session {
 pub type Sessions = DashMap<String, Vec<Session>>;
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct Config {
   pub builds_directory: String,
   pub session_lifetime: i64,

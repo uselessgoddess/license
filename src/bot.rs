@@ -1,12 +1,14 @@
 use std::{path::Path, sync::Arc};
 
 use teloxide::{
+  net::Download,
   prelude::*,
   types::{
     InlineKeyboardButton, InlineKeyboardMarkup, InputFile, MessageId, ParseMode,
   },
   utils::command::BotCommands,
 };
+use tokio::io::AsyncWriteExt;
 
 use crate::{
   entity::license::LicenseType,
@@ -91,6 +93,14 @@ enum Command {
   Info(String),
   Stats,
   Backup,
+  // Build management (admin only)
+  Builds,
+  #[command(parse_with = "split")]
+  Publish {
+    version: String,
+    changelog: String,
+  },
+  Deactivate(String),
 }
 
 trait BotExt {
@@ -186,6 +196,11 @@ fn help_text(is_admin: bool) -> String {
     text.push_str("/info <code>key</code> - Key info\n");
     text.push_str("/stats - Server statistics\n");
     text.push_str("/backup - Force backup\n");
+    text.push_str("\n<b>Build Management:</b>\n");
+    text.push_str("/builds - List all builds\n");
+    text
+      .push_str("/publish <code>version</code> <code>changelog</code> - Publish build (reply to file)\n");
+    text.push_str("/deactivate <code>version</code> - Deactivate build\n");
   }
 
   text
@@ -358,6 +373,177 @@ async fn handle_command(
       }
       if app.perform_backup(msg.chat.id).await.is_err() {
         bot.send_document(msg.chat.id, InputFile::file("licenses.db")).await?;
+      }
+    }
+
+    Command::Builds => {
+      if !is_admin {
+        return Ok(());
+      }
+      match sv.build.all().await {
+        Ok(builds) if !builds.is_empty() => {
+          let mut text = String::from("📦 <b>All Builds:</b>\n");
+          for build in builds {
+            let status = if build.is_active { "✅" } else { "❌" };
+            text.push_str(&format!(
+              "\n{} <b>v{}</b>\n📥 {} downloads\n📅 {}\n",
+              status,
+              build.version,
+              build.downloads,
+              format_date(build.created_at)
+            ));
+            if let Some(changelog) = &build.changelog {
+              text.push_str(&format!("📝 {}\n", changelog));
+            }
+          }
+          bot.reply_with_keyboard(msg.chat.id, text, back_keyboard()).await?;
+        }
+        Ok(_) => {
+          bot.reply_html(msg.chat.id, "📦 No builds found.").await?;
+        }
+        Err(e) => {
+          bot.reply_html(msg.chat.id, format!("❌ Error: {}", e)).await?;
+        }
+      }
+    }
+
+    Command::Publish { version, changelog } => {
+      if !is_admin {
+        return Ok(());
+      }
+
+      // Check if replying to a document
+      let document = msg.reply_to_message().and_then(|reply| reply.document());
+
+      let Some(doc) = document else {
+        bot
+          .reply_html(
+            msg.chat.id,
+            "❌ Please reply to a file with this command.\n\
+            Example: Reply to a .exe file with /publish 1.0.0 Initial release",
+          )
+          .await?;
+        return Ok(());
+      };
+
+      // Download the file
+      let file = bot.get_file(doc.file.id.clone()).await?;
+      let file_name = doc
+        .file_name
+        .clone()
+        .unwrap_or_else(|| format!("build_{}.bin", version));
+      let file_path = format!("{}/{}", app.config.builds_directory, file_name);
+
+      // Create builds directory if needed
+      if let Err(e) =
+        tokio::fs::create_dir_all(&app.config.builds_directory).await
+      {
+        bot
+          .reply_html(
+            msg.chat.id,
+            format!("❌ Failed to create builds directory: {}", e),
+          )
+          .await?;
+        return Ok(());
+      }
+
+      // Download file to disk using stream
+      let download_result = async {
+        let mut stream = bot.download_file_stream(&file.path);
+        let mut dst = tokio::fs::File::create(&file_path).await?;
+
+        use futures::StreamExt;
+        while let Some(chunk) = stream.next().await {
+          let chunk = chunk?;
+          dst.write_all(&chunk).await?;
+        }
+        dst.flush().await?;
+        Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+      }
+      .await;
+
+      if let Err(e) = download_result {
+        bot
+          .reply_html(msg.chat.id, format!("❌ Failed to download file: {}", e))
+          .await?;
+        return Ok(());
+      }
+
+      // Create build record
+      let changelog_opt =
+        if changelog.is_empty() { None } else { Some(changelog) };
+
+      match sv.build.create(version.clone(), file_path, changelog_opt).await {
+        Ok(build) => {
+          bot
+            .reply_html(
+              msg.chat.id,
+              format!(
+                "✅ Build published!\n\n\
+                <b>Version:</b> {}\n\
+                <b>File:</b> {}\n\
+                <b>Created:</b> {}",
+                build.version,
+                build.file_path,
+                format_date(build.created_at)
+              ),
+            )
+            .await?;
+        }
+        Err(e) => {
+          bot
+            .reply_html(msg.chat.id, format!("❌ Failed to publish: {}", e))
+            .await?;
+        }
+      }
+    }
+
+    Command::Deactivate(version) => {
+      if !is_admin {
+        return Ok(());
+      }
+
+      // First check if build exists and get its details
+      match sv.build.by_version(&version).await {
+        Ok(Some(build)) if build.is_active => {
+          match sv.build.deactivate(&version).await {
+            Ok(_) => {
+              bot
+                .reply_html(
+                  msg.chat.id,
+                  format!(
+                    "✅ Build deactivated.\n\n\
+                    <b>Version:</b> {}\n\
+                    <b>Downloads:</b> {}",
+                    build.version, build.downloads
+                  ),
+                )
+                .await?;
+            }
+            Err(e) => {
+              bot.reply_html(msg.chat.id, format!("❌ Error: {}", e)).await?;
+            }
+          }
+        }
+        Ok(Some(_)) => {
+          bot
+            .reply_html(
+              msg.chat.id,
+              format!("❌ Build v{} is already inactive.", version),
+            )
+            .await?;
+        }
+        Ok(None) => {
+          bot
+            .reply_html(
+              msg.chat.id,
+              format!("❌ Build v{} not found.", version),
+            )
+            .await?;
+        }
+        Err(e) => {
+          bot.reply_html(msg.chat.id, format!("❌ Error: {}", e)).await?;
+        }
       }
     }
   }
@@ -664,15 +850,40 @@ async fn handle_stats_view(
   bot: &Bot,
   chat_id: ChatId,
 ) -> ResponseResult<()> {
+  let sv = app.sv();
+
+  // Runtime stats
   let active_keys = app.sessions.len();
   let total_sessions: usize =
     app.sessions.iter().map(|e| e.value().len()).sum();
 
+  // Database stats
+  let total_users = sv.user.count().await.unwrap_or(0);
+  let total_licenses = sv.license.count().await.unwrap_or(0);
+  let active_licenses = sv.license.count_active().await.unwrap_or(0);
+  let total_builds = sv.build.count().await.unwrap_or(0);
+  let total_downloads = sv.build.total_downloads().await.unwrap_or(0);
+
   let text = format!(
     "📊 <b>System Stats</b>\n\n\
-    <b>Active Keys:</b> {}\n\
-    <b>Total Sessions:</b> {}",
-    active_keys, total_sessions
+    <b>🔌 Runtime:</b>\n\
+    Active Keys: {}\n\
+    Total Sessions: {}\n\n\
+    <b>👥 Users:</b>\n\
+    Total Registered: {}\n\n\
+    <b>🔑 Licenses:</b>\n\
+    Total: {}\n\
+    Active: {}\n\n\
+    <b>📦 Builds:</b>\n\
+    Total: {}\n\
+    Downloads: {}",
+    active_keys,
+    total_sessions,
+    total_users,
+    total_licenses,
+    active_licenses,
+    total_builds,
+    total_downloads
   );
 
   bot.reply_with_keyboard(chat_id, text, back_keyboard()).await?;
@@ -685,15 +896,40 @@ async fn handle_stats_edit(
   chat_id: ChatId,
   message_id: MessageId,
 ) -> ResponseResult<()> {
+  let sv = app.sv();
+
+  // Runtime stats
   let active_keys = app.sessions.len();
   let total_sessions: usize =
     app.sessions.iter().map(|e| e.value().len()).sum();
 
+  // Database stats
+  let total_users = sv.user.count().await.unwrap_or(0);
+  let total_licenses = sv.license.count().await.unwrap_or(0);
+  let active_licenses = sv.license.count_active().await.unwrap_or(0);
+  let total_builds = sv.build.count().await.unwrap_or(0);
+  let total_downloads = sv.build.total_downloads().await.unwrap_or(0);
+
   let text = format!(
     "📊 <b>System Stats</b>\n\n\
-    <b>Active Keys:</b> {}\n\
-    <b>Total Sessions:</b> {}",
-    active_keys, total_sessions
+    <b>🔌 Runtime:</b>\n\
+    Active Keys: {}\n\
+    Total Sessions: {}\n\n\
+    <b>👥 Users:</b>\n\
+    Total Registered: {}\n\n\
+    <b>🔑 Licenses:</b>\n\
+    Total: {}\n\
+    Active: {}\n\n\
+    <b>📦 Builds:</b>\n\
+    Total: {}\n\
+    Downloads: {}",
+    active_keys,
+    total_sessions,
+    total_users,
+    total_licenses,
+    active_licenses,
+    total_builds,
+    total_downloads
   );
 
   bot.edit_with_keyboard(chat_id, message_id, text, admin_keyboard()).await?;

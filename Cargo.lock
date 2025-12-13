@@ -1585,6 +1585,7 @@ dependencies = [
  "dashmap",
  "dotenvy",
  "flate2",
+ "futures",
  "sea-orm",
  "sea-orm-migration",
  "serde",

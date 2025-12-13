@@ -120,6 +120,21 @@ impl<'a> License<'a> {
     now >= start && now <= end
   }
 
+  pub async fn count(&self) -> Result<u64> {
+    let count = license::Entity::find().count(self.db).await?;
+    Ok(count)
+  }
+
+  pub async fn count_active(&self) -> Result<u64> {
+    let now = Utc::now().naive_utc();
+    let count = license::Entity::find()
+      .filter(license::Column::IsBlocked.eq(false))
+      .filter(license::Column::ExpiresAt.gt(now))
+      .count(self.db)
+      .await?;
+    Ok(count)
+  }
+
   pub async fn claim_promo(
     &self,
     tg_user_id: i64,
