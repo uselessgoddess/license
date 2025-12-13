@@ -356,7 +356,7 @@ async fn handle_command(
       if !is_admin {
         return Ok(());
       }
-      if let Err(_) = app.perform_backup(msg.chat.id).await {
+      if app.perform_backup(msg.chat.id).await.is_err() {
         bot.send_document(msg.chat.id, InputFile::file("licenses.db")).await?;
       }
     }

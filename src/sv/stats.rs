@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{entity::*, prelude::*, sv};
 
+/// System stats collected from client for debug analyzing
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct SystemStats {
   pub app_version: String,
   pub session_id: String,
@@ -19,6 +21,7 @@ pub struct SystemStats {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct PerformanceStats {
   pub avg_fps: f32,
   pub avg_ram_mb: u32,
@@ -26,6 +29,7 @@ pub struct PerformanceStats {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct FarmingStats {
   pub cycle_time: u32,
   #[serde(default)]
@@ -37,6 +41,7 @@ pub struct FarmingStats {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct NetworkStats {
   #[serde(default)]
   pub srt: HashMap<String, ServerRegionStats>,
@@ -46,6 +51,7 @@ pub struct NetworkStats {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct ServerRegionStats {
   pub ping: u32,
 }

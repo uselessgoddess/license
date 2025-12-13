@@ -89,6 +89,47 @@ async fn main() {
     }
   });
 
+  // Spawn weekly stats reset task (resets weekly XP on Mondays at 00:00 UTC)
+  let stats_app = app_state.clone();
+  tokio::spawn(async move {
+    use chrono::Datelike;
+
+    loop {
+      let now = Utc::now();
+
+      // Calculate days until next Monday
+      // num_days_from_monday() returns 0 for Monday, 1 for Tuesday, etc.
+      let days_from_monday = now.weekday().num_days_from_monday();
+      let days_until_next_monday = if days_from_monday == 0 {
+        7 // It's Monday, schedule for next Monday
+      } else {
+        7 - days_from_monday
+      };
+
+      let next_monday = now
+        .date_naive()
+        .checked_add_days(chrono::Days::new(days_until_next_monday as u64))
+        .expect("Date overflow")
+        .and_hms_opt(0, 0, 0)
+        .expect("Invalid time");
+
+      let sleep_duration = (next_monday - now.naive_utc())
+        .to_std()
+        .unwrap_or(Duration::from_secs(3600));
+
+      info!(
+        "Weekly stats reset scheduled in {} hours",
+        sleep_duration.as_secs() / 3600
+      );
+      tokio::time::sleep(sleep_duration).await;
+
+      match sv::Stats::reset_weekly_xp(&stats_app.db).await {
+        Ok(_) => info!("Weekly XP stats reset successfully"),
+        Err(e) => error!("Failed to reset weekly stats: {}", e),
+      }
+    }
+  });
+
   let governor_conf = Arc::new(
     GovernorConfigBuilder::default()
       .per_second(2)

@@ -16,6 +16,7 @@ use tracing::{debug, info};
 use crate::{migration::Migrator, prelude::*, sv};
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Session {
   pub session_id: String,
   pub hwid_hash: Option<String>,
@@ -25,6 +26,7 @@ pub struct Session {
 pub type Sessions = DashMap<String, Vec<Session>>;
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Config {
   pub builds_directory: String,
   pub session_lifetime: i64,

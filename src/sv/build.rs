@@ -1,9 +1,11 @@
 use crate::{entity::*, prelude::*};
 
+#[allow(dead_code)]
 pub struct Build<'a> {
   db: &'a DatabaseConnection,
 }
 
+#[allow(dead_code)]
 impl<'a> Build<'a> {
   pub fn new(db: &'a DatabaseConnection) -> Self {
     Self { db }

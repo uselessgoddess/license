@@ -60,10 +60,10 @@ pub async fn heartbeat(
   if let Some(mut sessions) = app.sessions.get_mut(&req.key)
     && let Some(sess) =
       sessions.iter_mut().find(|s| s.session_id == req.session_id)
-    {
-      sess.last_seen = now;
-      return (StatusCode::OK, Json(HeartbeatRes::ok(magic)));
-    }
+  {
+    sess.last_seen = now;
+    return (StatusCode::OK, Json(HeartbeatRes::ok(magic)));
+  }
 
   let license = match app.sv().license.validate(&req.key).await {
     Ok(license) => license,
@@ -114,12 +114,13 @@ pub async fn heartbeat(
 
   if let Some(stats_b64) = req.stats
     && let Some(compressed) = base64_decode(&stats_b64)
-      && let Ok(stats) = Stats::decompress_stats(&compressed) {
-        let active = entry.len() as u32;
-        let _ = (app.sv().stats)
-          .update_from_telemetry(license.tg_user_id, &stats, active)
-          .await;
-      }
+    && let Ok(stats) = Stats::decompress_stats(&compressed)
+  {
+    let active = entry.len() as u32;
+    let _ = (app.sv().stats)
+      .update_from_telemetry(license.tg_user_id, &stats, active)
+      .await;
+  }
 
   (StatusCode::OK, Json(HeartbeatRes::ok(magic)))
 }

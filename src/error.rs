@@ -12,6 +12,7 @@ pub enum Promo {
 }
 
 #[derive(thiserror::Error, Debug)]
+#[allow(dead_code)]
 pub enum Error {
   #[error("License not found")]
   LicenseNotFound,

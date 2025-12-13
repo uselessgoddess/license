@@ -1,7 +1,4 @@
-pub use std::{
-  collections::HashMap,
-  time::Duration,
-};
+pub use std::{collections::HashMap, time::Duration};
 
 pub use chrono::{NaiveDateTime as DateTime, TimeDelta, TimeZone, Utc};
 pub use dashmap::DashMap;
