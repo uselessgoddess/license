@@ -29,7 +29,6 @@ impl<'a> User<'a> {
   }
 
   pub async fn count(&self) -> Result<u64> {
-    let count = user::Entity::find().count(self.db).await?;
-    Ok(count)
+    Ok(user::Entity::find().count(self.db).await?)
   }
 }

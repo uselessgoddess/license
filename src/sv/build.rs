@@ -88,12 +88,10 @@ impl<'a> Build<'a> {
   }
 
   pub async fn count(&self) -> Result<u64> {
-    let count = build::Entity::find().count(self.db).await?;
-    Ok(count)
+    Ok(build::Entity::find().count(self.db).await?)
   }
 
   pub async fn total_downloads(&self) -> Result<u64> {
-    use sea_orm::QuerySelect;
     use sea_orm::sea_query::Expr;
 
     let result: Option<i64> = build::Entity::find()
