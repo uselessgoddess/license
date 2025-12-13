@@ -6,7 +6,7 @@ use teloxide::{
   types::{
     InlineKeyboardButton, InlineKeyboardMarkup, InputFile, MessageId, ParseMode,
   },
-  utils::command::BotCommands,
+  utils::command::{BotCommands, ParseError},
 };
 use tokio::io::AsyncWriteExt;
 
@@ -74,6 +74,20 @@ fn back_keyboard() -> InlineKeyboardMarkup {
   )]])
 }
 
+fn parse_publish(
+  input: String,
+) -> std::result::Result<(String, String), ParseError> {
+  let mut parts = input.splitn(2, ' ');
+  let version = parts.next().unwrap_or_default().to_string();
+  let changelog = parts.next().unwrap_or_default().to_string();
+
+  if version.is_empty() {
+    return Err(ParseError::IncorrectFormat("Version is required".into()));
+  }
+
+  Ok((version, changelog))
+}
+
 #[derive(BotCommands, Clone)]
 #[command(rename_rule = "lowercase")]
 enum Command {
@@ -94,7 +108,7 @@ enum Command {
   Stats,
   Backup,
   Builds,
-  #[command(parse_with = "split")]
+  #[command(parse_with = parse_publish)]
   Publish {
     version: String,
     changelog: String,
