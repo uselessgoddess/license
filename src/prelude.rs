@@ -1,3 +1,4 @@
+//! Common imports for the license server
 
 pub use std::collections::HashSet;
 pub use std::sync::Arc;

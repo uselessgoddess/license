@@ -1,25 +1,55 @@
 [package]
 name = "license"
-version = "0.0.0"
+version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-sqlx = { version = "0.7", features = [
-    "runtime-tokio-rustls", "sqlite", "chrono"
+# Database ORM
+sea-orm = { version = "1.1", features = [
+    "sqlx-sqlite",
+    "runtime-tokio-rustls",
+    "macros",
+    "with-chrono",
+    "with-uuid",
 ] }
-teloxide = { version = "0.17",  features = ["macros"] }
-tokio = { version = "1", features = ["full"] }
-axum = "0.7"
+sea-orm-migration = { version = "1.1", features = ["sqlx-sqlite", "runtime-tokio-rustls"] }
 
+# Web Framework
+axum = { version = "0.7", features = ["macros"] }
+tower = { version = "0.5", features = ["util", "limit"] }
+tower-http = { version = "0.6", features = ["trace", "cors"] }
+tower_governor = "0.4"
+
+# Telegram Bot
+teloxide = { version = "0.17", features = ["macros"] }
+
+# Async Runtime
+tokio = { version = "1", features = ["full"] }
+
+# Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+# Serialization
 serde = { version = "1", features = ["derive"] }
 json = { package = "serde_json", version = "1" }
-chrono = { version = "0.4", features = ["serde"] }
-uuid = { version = "1.19", features = ["v4"] }
 
+# Date/Time & UUID
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.19", features = ["v4", "serde"] }
+
+# Utilities
 dashmap = "6.1"
 thiserror = "2.0"
 dotenvy = "0.15"
 anyhow = "1.0"
+async-trait = "0.1"
+derive_more = { version = "2.0", features = ["display", "from"] }
+flate2 = "1.0"
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3.14"
+
+[features]
+default = []

@@ -1,31 +1,63 @@
+//! Application state with dependency injection
+
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
-use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use chrono::TimeZone;
+use chrono::Utc;
 use dashmap::DashMap;
-use sqlx::SqlitePool;
-use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
+use sea_orm::{ConnectionTrait, Database, DatabaseConnection};
+use sea_orm_migration::MigratorTrait;
 use teloxide::Bot;
 use teloxide::prelude::*;
 use teloxide::types::InputFile;
 use tokio::fs;
+use tracing::{debug, error, info};
 
-use crate::model::{License, Session};
-use crate::prelude::*;
+use crate::migration::Migrator;
+
+/// Session tracking for active connections
+#[derive(Debug, Clone)]
+pub struct Session {
+  pub session_id: String,
+  pub hwid_hash: Option<String>,
+  pub last_seen: chrono::NaiveDateTime,
+}
 
 pub type Sessions = DashMap<String, Vec<Session>>;
 
-pub struct App {
-  pub db: SqlitePool,
+/// Application configuration
+#[derive(Debug, Clone)]
+pub struct Config {
+  pub max_sessions_per_license: i32,
+  pub session_timeout_secs: i64,
+  pub backup_interval_hours: u64,
+  pub builds_directory: String,
+}
+
+impl Default for Config {
+  fn default() -> Self {
+    Self {
+      max_sessions_per_license: 5,
+      session_timeout_secs: 120,
+      backup_interval_hours: 1,
+      builds_directory: "./builds".to_string(),
+    }
+  }
+}
+
+/// Main application state
+pub struct AppState {
+  pub db: DatabaseConnection,
   pub bot: Bot,
   pub admins: HashSet<i64>,
   pub sessions: Sessions,
   pub secret: String,
-  // meta
-  pub backup_hash: AtomicU64,
+  pub config: Config,
+  // Backup deduplication
+  backup_hash: AtomicU64,
 }
 
 fn hash_of(bytes: &[u8]) -> u64 {
@@ -34,23 +66,28 @@ fn hash_of(bytes: &[u8]) -> u64 {
   hasher.finish()
 }
 
-impl App {
+impl AppState {
   pub async fn new(
     db_url: &str,
     bot_token: &str,
     admins: HashSet<i64>,
     secret: String,
   ) -> Self {
-    let options = SqliteConnectOptions::from_str(db_url)
-      .expect("invalid `DATABASE_URL`")
-      .create_if_missing(true)
-      .journal_mode(SqliteJournalMode::Wal);
+    Self::with_config(db_url, bot_token, admins, secret, Config::default()).await
+  }
 
+  pub async fn with_config(
+    db_url: &str,
+    bot_token: &str,
+    admins: HashSet<i64>,
+    secret: String,
+    config: Config,
+  ) -> Self {
     info!("Connecting to database...");
-    let db = SqlitePool::connect_with(options).await.expect("DB fail");
+    let db = Database::connect(db_url).await.expect("Failed to connect to database");
 
     info!("Running migrations...");
-    sqlx::migrate!("./migrations").run(&db).await.expect("Migrations failed");
+    Migrator::up(&db, None).await.expect("Failed to run migrations");
 
     Self {
       db,
@@ -58,12 +95,14 @@ impl App {
       bot: Bot::new(bot_token),
       admins,
       secret,
+      config,
       backup_hash: AtomicU64::new(0),
     }
   }
 
+  /// Perform smart backup (only if DB changed)
   pub async fn perform_smart_backup(&self) -> anyhow::Result<()> {
-    let timestamp = chrono::Utc::now().format("%Y-%m-%d_%H-%M-%S");
+    let timestamp = Utc::now().format("%Y-%m-%d_%H-%M-%S");
     let filename = format!("backup_{}.db", timestamp);
     let path = Path::new(&filename);
 
@@ -71,8 +110,15 @@ impl App {
       let _ = fs::remove_file(path).await;
     }
 
+    // SQLite VACUUM INTO for safe backup
     let query = format!("VACUUM INTO '{}'", filename);
-    sqlx::query(&query).execute(&self.db).await?;
+    self
+      .db
+      .execute(sea_orm::Statement::from_string(
+        sea_orm::DatabaseBackend::Sqlite,
+        query,
+      ))
+      .await?;
 
     let content = fs::read(path).await?;
 
@@ -81,11 +127,9 @@ impl App {
 
     self.backup_hash.store(new_hash, Ordering::Relaxed);
 
-    // FIXME: 0 is hardcoded as fresh start hash
-    if new_hash == old_hash || old_hash == 0
-    /* fresh start */
-    {
-      debug!("No changes in DB, skipping backup");
+    // Skip if unchanged or first run
+    if new_hash == old_hash || old_hash == 0 {
+      debug!("No changes in DB, skipping backup notification");
     } else {
       for &admin in self.admins.iter() {
         let doc = InputFile::file(path);
@@ -102,20 +146,23 @@ impl App {
           .await;
       }
     }
-    let _ = fs::remove_file(path).await;
 
+    let _ = fs::remove_file(path).await;
     Ok(())
   }
 
-  pub async fn perform_backup(
-    &self,
-    chat_id: teloxide::types::ChatId,
-  ) -> anyhow::Result<()> {
-    let timestamp = chrono::Utc::now().format("%Y-%m-%d_%H-%M-%S");
+  /// Force backup to specific chat
+  pub async fn perform_backup(&self, chat_id: ChatId) -> anyhow::Result<()> {
+    let timestamp = Utc::now().format("%Y-%m-%d_%H-%M-%S");
     let filename = format!("manual_backup_{}.db", timestamp);
 
-    sqlx::query(&format!("VACUUM INTO '{}'", filename))
-      .execute(&self.db)
+    let query = format!("VACUUM INTO '{}'", filename);
+    self
+      .db
+      .execute(sea_orm::Statement::from_string(
+        sea_orm::DatabaseBackend::Sqlite,
+        query,
+      ))
       .await?;
 
     let path = Path::new(&filename);
@@ -125,137 +172,24 @@ impl App {
     Ok(())
   }
 
-  pub async fn create_license(
-    &self,
-    user_id: i64,
-    days: u64,
-  ) -> sqlx::Result<String> {
-    let key = uuid::Uuid::new_v4().to_string();
-    let exp = Utc::now().naive_utc() + Duration::from_hours(24 * days);
-
-    sqlx::query!(
-      "INSERT INTO licenses (key, tg_user_id, expires_at) VALUES (?, ?, ?)",
-      key,
-      user_id,
-      exp
-    )
-    .execute(&self.db)
-    .await?;
-
-    Ok(key)
-  }
-
-  pub async fn extend_license(
-    &self,
-    key: &str,
-    days: i64,
-  ) -> Result<DateTime, String> {
-    let mut tx = self.db.begin().await.map_err(|e| e.to_string())?;
-
-    let Some(rec) =
-      sqlx::query!("SELECT expires_at FROM licenses WHERE key = ?", key)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?
-    else {
-      return Err("Key not found".to_string());
-    };
-
+  /// Clean up stale sessions
+  pub fn gc_sessions(&self) {
     let now = Utc::now().naive_utc();
+    let timeout = self.config.session_timeout_secs;
 
-    let base_time = if rec.expires_at < now { now } else { rec.expires_at };
-    let new_exp = base_time + Duration::from_hours(24 * days as u64);
-
-    sqlx::query!(
-      "UPDATE licenses SET expires_at = ?, is_blocked = FALSE WHERE key = ?",
-      new_exp,
-      key
-    )
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| e.to_string())?;
-
-    tx.commit().await.map_err(|e| e.to_string())?;
-    Ok(new_exp)
+    self.sessions.retain(|_key, sessions| {
+      sessions.retain(|s| (now - s.last_seen).num_seconds() < timeout);
+      !sessions.is_empty()
+    });
   }
 
-  pub async fn set_ban(&self, key: &str, blocked: bool) -> sqlx::Result<()> {
-    sqlx::query!(
-      "UPDATE licenses SET is_blocked = ? WHERE key = ?",
-      blocked,
-      key
-    )
-    .execute(&self.db)
-    .await?;
-
-    if blocked {
-      self.sessions.remove(key);
-    }
-
-    Ok(())
-  }
-
-  pub async fn license_info(&self, key: &str) -> sqlx::Result<Option<License>> {
-    sqlx::query_as!(License, "SELECT * FROM licenses WHERE key = ?", key)
-      .fetch_optional(&self.db)
-      .await
-  }
-
-  pub async fn keys_of(&self, user_id: i64) -> Option<Vec<License>> {
-    sqlx::query_as!(
-      License,
-      "SELECT * FROM licenses WHERE tg_user_id = ? AND is_blocked = 0",
-      user_id
-    )
-    .fetch_all(&self.db)
-    .await
-    .ok()
-  }
-
-  pub fn is_promo_active(&self) -> bool {
-    let now = Utc::now();
-
-    // TODO: my fav hardcoded holydays
-    let start = Utc.with_ymd_and_hms(2025, 12, 14, 18, 0, 0).unwrap();
-    let end = Utc.with_ymd_and_hms(2025, 12, 21, 23, 59, 59).unwrap();
-
-    now >= start && now <= end
-  }
-
-  pub async fn claim_promo(
-    &self,
-    user_id: i64,
-    promo_name: &str,
-  ) -> sqlx::Result<Promo> {
-    if !self.is_promo_active() {
-      return Ok(Promo::Err("Promo is not active right now."));
-    }
-
-    let exists = sqlx::query!(
-      "SELECT 1 as one FROM claimed_promos WHERE tg_user_id = ? AND promo_name = ?", 
-      user_id, promo_name
-    )
-    .fetch_optional(&self.db)
-    .await?;
-
-    if exists.is_some() {
-      return Ok(Promo::Err("You have already claimed this promo code."));
-    }
-
-    let key = self.create_license(user_id, 1007).await?;
-    let now = Utc::now().naive_utc();
-
-    sqlx::query!(
-      "INSERT INTO claimed_promos (tg_user_id, promo_name, claimed_at) VALUES (?, ?, ?)",
-      user_id, promo_name, now
-    )
-    .execute(&self.db)
-    .await?;
-
-    Ok(Promo::Key(key))
+  /// Drop all sessions for a license key
+  pub fn drop_sessions(&self, key: &str) {
+    self.sessions.remove(key);
   }
 }
 
+/// Promo result enum for backwards compatibility
 #[derive(Debug)]
 pub enum Promo {
   Key(String),
