@@ -57,14 +57,13 @@ pub async fn heartbeat(
   let now = Utc::now().naive_utc();
   let magic = generate_magic(&req.session_id, &app.secret);
 
-  if let Some(mut sessions) = app.sessions.get_mut(&req.key) {
-    if let Some(sess) =
+  if let Some(mut sessions) = app.sessions.get_mut(&req.key)
+    && let Some(sess) =
       sessions.iter_mut().find(|s| s.session_id == req.session_id)
     {
       sess.last_seen = now;
       return (StatusCode::OK, Json(HeartbeatRes::ok(magic)));
     }
-  }
 
   let license = match app.sv().license.validate(&req.key).await {
     Ok(license) => license,
@@ -113,16 +112,14 @@ pub async fn heartbeat(
     last_seen: now,
   });
 
-  if let Some(stats_b64) = req.stats {
-    if let Some(compressed) = base64_decode(&stats_b64) {
-      if let Ok(stats) = Stats::decompress_stats(&compressed) {
+  if let Some(stats_b64) = req.stats
+    && let Some(compressed) = base64_decode(&stats_b64)
+      && let Ok(stats) = Stats::decompress_stats(&compressed) {
         let active = entry.len() as u32;
         let _ = (app.sv().stats)
           .update_from_telemetry(license.tg_user_id, &stats, active)
           .await;
       }
-    }
-  }
 
   (StatusCode::OK, Json(HeartbeatRes::ok(magic)))
 }

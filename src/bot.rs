@@ -31,7 +31,6 @@ const CB_PROFILE: &str = "profile";
 const CB_LICENSE: &str = "license";
 const CB_TRIAL: &str = "trial";
 const CB_DOWNLOAD: &str = "download";
-const CB_SUPPORT: &str = "support";
 const CB_BACK: &str = "back";
 const CB_ADMIN: &str = "admin";
 const CB_STATS: &str = "stats";

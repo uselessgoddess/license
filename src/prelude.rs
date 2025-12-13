@@ -1,6 +1,5 @@
 pub use std::{
-  collections::{HashMap, HashSet},
-  sync::Arc,
+  collections::HashMap,
   time::Duration,
 };
 
@@ -11,6 +10,6 @@ pub use sea_orm::{
   EntityTrait, QueryFilter, QueryOrder, Set, TransactionTrait,
 };
 pub use sea_orm_migration::MigratorTrait;
-pub use tracing::{debug, error, info, trace, warn};
+pub use tracing::{error, info, warn};
 
 pub use crate::error::{Error, Promo, Result};

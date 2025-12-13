@@ -11,7 +11,7 @@ use teloxide::{
   types::{InputFile, ParseMode},
 };
 use tokio::fs;
-use tracing::{debug, error, info};
+use tracing::{debug, info};
 
 use crate::{migration::Migrator, prelude::*, sv};
 

@@ -18,7 +18,7 @@ impl<'a> Build<'a> {
     Ok(build)
   }
 
-  pub async fn get_by_version(
+  pub async fn by_version(
     db: &DatabaseConnection,
     version: &str,
   ) -> Result<Option<build::Model>> {
