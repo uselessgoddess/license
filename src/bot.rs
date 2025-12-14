@@ -238,7 +238,11 @@ async fn handle_command(
         Use the buttons below to navigate.\n\
         Contact support: @y_a_c_s_p";
       bot
-        .reply_with_keyboard(msg.chat.id, text, main_menu(false, is_admin))
+        .reply_with_keyboard(
+          msg.chat.id,
+          text,
+          main_menu(sv.license.is_promo_active(), is_admin),
+        )
         .await?;
     }
 
@@ -545,7 +549,7 @@ async fn handle_callback(
           chat_id,
           message_id,
           text,
-          main_menu(false, is_admin),
+          main_menu(sv.license.is_promo_active(), is_admin),
         )
         .await?;
     }

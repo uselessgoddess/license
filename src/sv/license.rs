@@ -112,10 +112,10 @@ impl<'a> License<'a> {
     Ok(())
   }
 
-  pub fn is_promo_active() -> bool {
+  pub fn is_promo_active(&self) -> bool {
     let now = Utc::now();
     // TODO: configurable promo periods
-    let start = Utc.with_ymd_and_hms(2025, 12, 14, 18, 0, 0).unwrap();
+    let start = Utc.with_ymd_and_hms(2025, 12, 14, 16, 0, 0).unwrap();
     let end = Utc.with_ymd_and_hms(2025, 12, 21, 23, 59, 59).unwrap();
     now >= start && now <= end
   }
@@ -142,7 +142,7 @@ impl<'a> License<'a> {
     tg_user_id: i64,
     promo_name: &str,
   ) -> Result<license::Model> {
-    if !Self::is_promo_active() {
+    if !self.is_promo_active() {
       return Err(Error::Promo(Promo::Inactive));
     }
 
