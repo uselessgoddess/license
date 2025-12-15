@@ -314,7 +314,7 @@ async fn handle_admin_command(
     for (i, username) in usernames.iter().enumerate() {
       let line = format!("{}. {}\n", i + 1, username);
       // Защита от слишком длинного сообщения (лимит Telegram ~4096 символов)
-      if response_text.len() + line.len() > 200 {
+      if response_text.len() + line.len() > 4096 {
         response_text.push_str("etc. (list is to long).");
         break;
       }
