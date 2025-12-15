@@ -5,6 +5,8 @@ use std::{
   sync::atomic::{AtomicU64, Ordering},
 };
 
+use uuid::Uuid;
+
 use teloxide::{
   Bot,
   prelude::*,
@@ -25,20 +27,32 @@ pub struct Session {
 
 pub type Sessions = DashMap<String, Vec<Session>>;
 
+/// Download token stored in DashMap with expiry
+#[derive(Debug, Clone)]
+pub struct DownloadToken {
+  pub version: String,
+  pub created_at: DateTime,
+}
+
+pub type DownloadTokens = DashMap<String, DownloadToken>;
+
 #[derive(Debug, Clone)]
 pub struct Config {
   pub builds_directory: String,
   pub session_lifetime: i64,
   pub backup_hours: u64,
+  pub download_token_lifetime: i64,
+  pub base_url: String,
 }
 
 impl Default for Config {
   fn default() -> Self {
     Self {
       builds_directory: String::from("./builds"),
-
       session_lifetime: 120,
       backup_hours: 1,
+      download_token_lifetime: 600, // 10 minutes
+      base_url: String::from("http://localhost:3000"),
     }
   }
 }
@@ -55,6 +69,7 @@ pub struct AppState {
   pub bot: Bot,
   pub admins: HashSet<i64>,
   pub sessions: Sessions,
+  pub download_tokens: DownloadTokens,
   pub secret: String,
   pub config: Config,
   // Backup deduplication
@@ -68,6 +83,7 @@ fn hash_of(bytes: &[u8]) -> u64 {
 }
 
 impl AppState {
+  #[allow(dead_code)]
   pub async fn new(
     db_url: &str,
     bot_token: &str,
@@ -95,6 +111,7 @@ impl AppState {
     Self {
       db,
       sessions: DashMap::new(),
+      download_tokens: DashMap::new(),
       bot: Bot::new(bot_token),
       admins,
       secret,
@@ -192,5 +209,36 @@ impl AppState {
 
   pub fn drop_sessions(&self, key: &str) {
     self.sessions.remove(key);
+  }
+
+  pub fn create_download_token(&self, version: &str) -> String {
+    let token = Uuid::new_v4().to_string();
+    let now = Utc::now().naive_utc();
+    self.download_tokens.insert(
+      token.clone(),
+      DownloadToken { version: version.to_string(), created_at: now },
+    );
+    token
+  }
+
+  pub fn validate_download_token(&self, token: &str) -> Option<String> {
+    let now = Utc::now().naive_utc();
+    let timeout = self.config.download_token_lifetime;
+
+    if let Some(dt) = self.download_tokens.get(token)
+      && (now - dt.created_at).num_seconds() < timeout
+    {
+      return Some(dt.version.clone());
+    }
+    None
+  }
+
+  pub fn gc_download_tokens(&self) {
+    let now = Utc::now().naive_utc();
+    let timeout = self.config.download_token_lifetime;
+
+    self
+      .download_tokens
+      .retain(|_, dt| (now - dt.created_at).num_seconds() < timeout);
   }
 }

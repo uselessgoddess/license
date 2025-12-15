@@ -51,11 +51,16 @@ async fn main() {
     .unwrap_or_else(|_| "sqlite:licenses.db?mode=rwc".into());
   let token = env::var("TELOXIDE_TOKEN").expect("TELOXIDE_TOKEN not set");
   let secret = env::var("SERVER_SECRET").expect("SERVER_SECRET not set");
+  let base_url =
+    env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:3000".into());
 
   info!("Starting License Server v{}", env!("CARGO_PKG_VERSION"));
 
-  let app_state =
-    Arc::new(AppState::new(&db_url, &token, admins, secret).await);
+  let config = state::Config { base_url, ..Default::default() };
+
+  let app_state = Arc::new(
+    AppState::with_config(&db_url, &token, admins, secret, config).await,
+  );
 
   let bot_state = app_state.clone();
   tokio::spawn(async move {
@@ -79,13 +84,14 @@ async fn main() {
     warn!("No admins configured, auto-backups disabled");
   }
 
-  // Spawn session garbage collector
+  // Spawn session and download token garbage collector
   let gc_app = app_state.clone();
   tokio::spawn(async move {
     let mut interval = tokio::time::interval(Duration::from_secs(60));
     loop {
       interval.tick().await;
       gc_app.gc_sessions();
+      gc_app.gc_download_tokens();
     }
   });
 
@@ -150,6 +156,7 @@ async fn main() {
   let app = Router::new()
     .route("/api/heartbeat", post(handlers::heartbeat))
     .route("/api/stats", post(handlers::submit_stats))
+    .route("/api/download", get(handlers::download))
     .route("/health", get(handlers::health))
     .layer(
       ServiceBuilder::new()
