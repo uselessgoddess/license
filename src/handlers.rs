@@ -1,9 +1,16 @@
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 
-use axum::{Json, extract::State, http::StatusCode};
+use axum::{
+  Json,
+  body::Body,
+  extract::{Query, State},
+  http::{StatusCode, header},
+  response::IntoResponse,
+};
 use base64::Engine;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use tokio_util::io::ReaderStream;
 
 use crate::{
   error::Error,
@@ -211,4 +218,65 @@ pub async fn submit_stats(
 
 pub async fn health() -> &'static str {
   "OK"
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DownloadQuery {
+  pub token: String,
+}
+
+pub async fn download(
+  State(app): State<Arc<AppState>>,
+  Query(query): Query<DownloadQuery>,
+) -> impl IntoResponse {
+  let version = match app.validate_download_token(&query.token) {
+    Some(v) => v,
+    None => {
+      return Err((
+        StatusCode::UNAUTHORIZED,
+        "Invalid or expired download token",
+      ));
+    }
+  };
+
+  let build = match app.sv().build.by_version(&version).await {
+    Ok(Some(b)) if b.is_active => b,
+    _ => {
+      return Err((StatusCode::NOT_FOUND, "Build not found"));
+    }
+  };
+
+  let path = Path::new(&build.file_path);
+  if !path.exists() {
+    return Err((StatusCode::NOT_FOUND, "Build file not found"));
+  }
+
+  let file = match tokio::fs::File::open(path).await {
+    Ok(f) => f,
+    Err(_) => {
+      return Err((StatusCode::INTERNAL_SERVER_ERROR, "Failed to open file"));
+    }
+  };
+
+  let filename = path
+    .file_name()
+    .and_then(|n| n.to_str())
+    .unwrap_or("download.bin")
+    .to_string();
+
+  let stream = ReaderStream::new(file);
+  let body = Body::from_stream(stream);
+
+  // Increment download counter
+  let _ = app.sv().build.increment_downloads(&version).await;
+
+  let headers = [
+    (header::CONTENT_TYPE, "application/octet-stream".to_string()),
+    (
+      header::CONTENT_DISPOSITION,
+      format!("attachment; filename=\"{}\"", filename),
+    ),
+  ];
+
+  Ok((headers, body))
 }

@@ -26,12 +26,38 @@ pub enum Error {
   Promo(Promo),
   #[error("Build not found")]
   BuildNotFound,
+  #[error("Build already inactive")]
+  BuildInactive,
+  #[error("Invalid arguments: {0}")]
+  InvalidArgs(String),
   #[error("DB error: {0}")]
   Database(#[from] sea_orm::DbErr),
   #[error("IO error: {0}")]
   Io(#[from] io::Error),
   #[error("Internal error: {0}")]
   Internal(String),
+}
+
+impl Error {
+  /// User-friendly error message for telegram bot responses
+  pub fn user_message(&self) -> String {
+    match self {
+      Error::LicenseNotFound => "Key not found".into(),
+      Error::UserNotFound => "User not found".into(),
+      Error::LicenseInvalid => "License expired or blocked".into(),
+      Error::SessionLimitReached => "Session limit reached".into(),
+      Error::Promo(Promo::Inactive) => "Promo is not active right now".into(),
+      Error::Promo(Promo::Claimed) => {
+        "You have already claimed this promo".into()
+      }
+      Error::BuildNotFound => "Build not found".into(),
+      Error::BuildInactive => "Build is already inactive".into(),
+      Error::InvalidArgs(msg) => msg.clone(),
+      Error::Database(e) => format!("Database error: {}", e),
+      Error::Io(e) => format!("IO error: {}", e),
+      Error::Internal(msg) => format!("Internal error: {}", msg),
+    }
+  }
 }
 
 impl IntoResponse for Error {
@@ -55,6 +81,10 @@ impl IntoResponse for Error {
         (StatusCode::CONFLICT, "Promo already claimed")
       }
       Error::BuildNotFound => (StatusCode::NOT_FOUND, "Build not found"),
+      Error::BuildInactive => {
+        (StatusCode::BAD_REQUEST, "Build already inactive")
+      }
+      Error::InvalidArgs(msg) => (StatusCode::BAD_REQUEST, msg.as_str()),
       Error::Io(_) => (StatusCode::INTERNAL_SERVER_ERROR, "IO error"),
       Error::Internal(_) => {
         (StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
