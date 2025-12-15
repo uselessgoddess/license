@@ -28,6 +28,14 @@ impl<'a> User<'a> {
     Ok(user)
   }
 
+  pub async fn all(&self) -> Result<Vec<user::Model>> {
+    let users = user::Entity::find()
+      .order_by_asc(user::Column::RegDate)
+      .all(self.db)
+      .await?;
+    Ok(users)
+  }
+
   #[allow(dead_code)]
   pub async fn count(&self) -> Result<u64> {
     Ok(user::Entity::find().count(self.db).await?)

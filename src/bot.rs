@@ -1,5 +1,6 @@
 use std::{path::Path, sync::Arc};
 
+use futures::future;
 use teloxide::{
   net::Download,
   prelude::*,
@@ -96,6 +97,7 @@ enum Command {
   MyKey,
   FreeWeek,
   // Admin commands
+  Users,
   Gen(String),
   #[command(parse_with = "split")]
   Buy {
@@ -278,6 +280,50 @@ async fn handle_admin_command(
   cmd: Command,
 ) -> ResponseResult<()> {
   let sv = app.sv();
+
+  if let Command::Users = cmd {
+    let users = match sv.user.all().await {
+      Ok(u) => u,
+      Err(e) => {
+        bot.reply_html(msg.chat.id, format!("❌ DB Error: {}", e)).await?;
+        return Ok(());
+      }
+    };
+
+    if users.is_empty() {
+      bot.reply_html(msg.chat.id, "There is no users.").await?;
+      return Ok(());
+    }
+
+    bot
+      .reply_html(
+        msg.chat.id,
+        format!("⏳ Found {} users. Getting names...", users.len()),
+      )
+      .await?;
+
+    let username_futures = users.into_iter().map(|u| {
+      let bot = bot.clone();
+      async move { bot.infer_username(ChatId(u.tg_user_id)).await }
+    });
+
+    let usernames = future::join_all(username_futures).await;
+
+    let mut response_text =
+      format!("<b>👥 Registered users (Total: {}):</b>\n\n", usernames.len());
+    for (i, username) in usernames.iter().enumerate() {
+      let line = format!("{}. {}\n", i + 1, username);
+      // Защита от слишком длинного сообщения (лимит Telegram ~4096 символов)
+      if response_text.len() + line.len() > 200 {
+        response_text.push_str("etc. (list is to long).");
+        break;
+      }
+      response_text.push_str(&line);
+    }
+
+    bot.reply_html(msg.chat.id, response_text).await?;
+    return Ok(());
+  }
 
   let result: std::result::Result<String, String> = match cmd {
     Command::Gen(args) => {
