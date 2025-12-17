@@ -44,8 +44,7 @@ impl App {
           let app = app.clone();
           let plugin = plugin.clone();
 
-          let handle =
-            tokio::spawn(async move { plugin.start(app).await });
+          let handle = tokio::spawn(async move { plugin.start(app).await });
 
           match handle.await {
             Ok(Ok(())) => {

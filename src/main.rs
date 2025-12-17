@@ -56,7 +56,7 @@ async fn main() {
     .register(cron::Sync)
     .register(cron::Backup)
     .register(cron::StatsClean)
-    // 
+    //
     .register(telegram::Plugin)
     .register(server::Plugin)
     .run(app_state)
