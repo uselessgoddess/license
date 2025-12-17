@@ -2,7 +2,6 @@
 
 mod entity;
 mod error;
-mod migration;
 mod plugins;
 mod prelude;
 mod state;
@@ -56,6 +55,8 @@ async fn main() {
     .register(cron::Sync)
     .register(cron::Backup)
     .register(cron::StatsClean)
+    //
+    .register(steam::FreeGames)
     //
     .register(telegram::Plugin)
     .register(server::Plugin)

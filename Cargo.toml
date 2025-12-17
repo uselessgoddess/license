@@ -4,6 +4,8 @@ version = "0.0.0"
 edition = "2024"
 
 [dependencies]
+migration = { path = "migration" }
+
 sea-orm = { version = "1.1", features = [
     "sqlx-sqlite",
     "runtime-tokio-rustls",
@@ -11,13 +13,15 @@ sea-orm = { version = "1.1", features = [
     "with-chrono",
     "with-uuid",
 ] }
-sea-orm-migration = { version = "1.1", features = ["sqlx-sqlite", "runtime-tokio-rustls"] }
 
 axum = { version = "0.8", features = ["macros"] }
 tower = { version = "0.5", features = ["util", "limit"] }
 tower-http = { version = "0.6", features = ["trace", "cors"] }
 tower_governor = "0.8"
 teloxide = { version = "0.17", features = ["macros"] }
+
+reqwest = { version = "0.12", features = ["json"] }
+scraper = { version = "0.25" }
 
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["io"] }

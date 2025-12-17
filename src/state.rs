@@ -5,6 +5,7 @@ use std::{
   sync::atomic::{AtomicU64, Ordering},
 };
 
+use migration::Migrator;
 use teloxide::{
   Bot,
   prelude::*,
@@ -14,7 +15,7 @@ use tokio::fs;
 use tracing::{debug, info};
 use uuid::Uuid;
 
-use crate::{migration::Migrator, prelude::*, sv};
+use crate::{prelude::*, sv};
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
@@ -61,6 +62,7 @@ pub struct Services<'a> {
   pub stats: sv::Stats<'a>,
   pub build: sv::Build<'a>,
   pub license: sv::License<'a>,
+  pub steam: sv::Steam<'a>,
 }
 
 pub struct AppState {
@@ -125,6 +127,7 @@ impl AppState {
       stats: sv::Stats::new(&self.db),
       build: sv::Build::new(&self.db),
       license: sv::License::new(&self.db),
+      steam: sv::Steam::new(&self.db),
     }
   }
 

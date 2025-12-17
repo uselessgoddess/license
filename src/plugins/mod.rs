@@ -1,5 +1,6 @@
 pub mod cron;
 pub mod server;
+pub mod steam;
 pub mod telegram;
 
 use std::{sync::Arc, time::Duration};

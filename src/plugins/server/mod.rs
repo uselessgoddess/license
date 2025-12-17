@@ -1,4 +1,5 @@
 mod handlers;
+mod steam;
 
 use std::{net::SocketAddr, sync::Arc};
 
@@ -36,6 +37,8 @@ impl super::Plugin for Plugin {
       .route("/api/download", get(handlers::download))
       .route("/api/heartbeat", post(handlers::heartbeat))
       .route("/api/stats", post(handlers::submit_stats))
+      // TODO: split configuration
+      .route("/api/cache/steam/free-games", get(steam::free_games))
       .layer(
         ServiceBuilder::new()
           .layer(TraceLayer::new_for_http())

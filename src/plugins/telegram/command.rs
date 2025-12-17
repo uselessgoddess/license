@@ -8,11 +8,7 @@ use teloxide::{
 };
 
 use super::ReplyBot;
-use crate::{
-  entity::license::LicenseType,
-  prelude::*,
-  state::AppState,
-};
+use crate::{entity::license::LicenseType, prelude::*, state::AppState};
 
 fn parse_publish(
   input: String,
