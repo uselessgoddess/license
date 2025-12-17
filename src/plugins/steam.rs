@@ -99,13 +99,11 @@ async fn fetch_free_app_ids(client: &Client) -> anyhow::Result<Vec<u32>> {
 
   let mut ids = Vec::new();
   for element in document.select(&selector) {
-    if let Some(attr) = element.value().attr("data-ds-appid") {
-      if let Some(first_part) = attr.split(',').next() {
-        if let Ok(id) = first_part.trim().parse::<u32>() {
+    if let Some(attr) = element.value().attr("data-ds-appid")
+      && let Some(first_part) = attr.split(',').next()
+        && let Ok(id) = first_part.trim().parse::<u32>() {
           ids.push(id);
         }
-      }
-    }
   }
   Ok(ids)
 }
@@ -119,9 +117,9 @@ async fn get_free_game_details(
   let resp: HashMap<String, AppDetailsResponse> =
     client.get(&url).send().await?.json().await?;
 
-  if let Some(details) = resp.get(&app_id.to_string()) {
-    if details.success {
-      if let Some(data) = &details.data {
+  if let Some(details) = resp.get(&app_id.to_string())
+    && details.success
+      && let Some(data) = &details.data {
         for group in &data.package_groups {
           for sub in &group.subs {
             if sub.price_in_cents_with_discount == 0 {
@@ -130,7 +128,5 @@ async fn get_free_game_details(
           }
         }
       }
-    }
-  }
   Ok(None)
 }
