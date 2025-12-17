@@ -2,7 +2,7 @@ use std::{path::Path, sync::Arc};
 
 use teloxide::{
   prelude::*,
-  types::{InlineKeyboardButton, InlineKeyboardMarkup, MessageId},
+  types::{InlineKeyboardButton, InlineKeyboardMarkup},
 };
 
 use super::ReplyBot;

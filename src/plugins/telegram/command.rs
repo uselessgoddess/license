@@ -3,9 +3,7 @@ use std::{path::Path, sync::Arc};
 use futures::future;
 use teloxide::{
   prelude::*,
-  types::{
-    InlineKeyboardButton, InlineKeyboardMarkup, InputFile, MessageId, ParseMode,
-  },
+  types::InputFile,
   utils::command::{BotCommands, ParseError},
 };
 
@@ -13,7 +11,7 @@ use super::ReplyBot;
 use crate::{
   entity::license::LicenseType,
   prelude::*,
-  state::{AppState, Services},
+  state::AppState,
 };
 
 fn parse_publish(
