@@ -1,61 +1,60 @@
 use std::io::Read;
 
+use base64::Engine;
 use flate2::read::GzDecoder;
+use json::json;
 use serde::{Deserialize, Serialize};
 
 use crate::{entity::*, prelude::*, sv};
 
-/// System stats collected from client for debug analyzing.
-/// These structs are used for deserializing client telemetry data.
-/// Fields are populated during JSON parsing but may not all be directly read.
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-pub struct SystemStats {
-  pub app_version: String,
-  pub session_id: String,
-  pub hwid_hash: String,
-  pub uptime: u64,
-  pub performance: PerformanceStats,
-  pub farming: FarmingStats,
-  pub network: NetworkStats,
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+pub struct MetaStats {
   #[serde(default)]
-  pub errors: Vec<String>,
+  pub performance: PerformanceMeta,
+  #[serde(default)]
+  pub network: NetworkMeta,
+  #[serde(default)]
+  pub states: HashMap<String, f64>,
 }
 
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-pub struct PerformanceStats {
-  pub avg_fps: f32,
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+pub struct PerformanceMeta {
+  pub avg_fps: f64,
   pub avg_ram_mb: u32,
-  pub avg_ai_ms: u32,
+  pub avg_ai_ms: f32,
 }
 
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-pub struct FarmingStats {
-  pub cycle_time: u32,
-  #[serde(default)]
-  pub states_stuck: HashMap<String, u32>,
-  #[serde(default)]
-  pub xp_gained: u64,
-  #[serde(default)]
-  pub drops: u32,
-}
-
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-pub struct NetworkStats {
-  #[serde(default)]
-  pub srt: HashMap<String, ServerRegionStats>,
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+pub struct NetworkMeta {
+  pub routes: Vec<String>,
   pub avg_ping: u32,
   #[serde(default)]
   pub gc_timeouts: u32,
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-pub struct ServerRegionStats {
-  pub ping: u32,
+#[serde(tag = "type", content = "data")]
+pub enum MetricEvent {
+  #[serde(rename = "shutdown")]
+  Shutdown { uptime: f64 },
+  #[serde(rename = "state")]
+  State { state: String, duration: f64 },
+  #[serde(rename = "srt")]
+  Srt { routes: Vec<String> },
+  #[serde(rename = "performance")]
+  Performance {
+    avg_fps: Option<f64>,
+    avg_ram_mb: Option<u32>,
+    avg_ai_ms: Option<f32>,
+  },
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MetricPayload {
+  #[serde(rename = "type")]
+  pub event_type: String,
+  pub license_key: String,
+  pub data: json::Value,
 }
 
 #[derive(Debug, Serialize)]
@@ -65,6 +64,7 @@ pub struct UserStatsDisplay {
   pub drops_count: u32,
   pub instances: u32,
   pub runtime_hours: f64,
+  pub meta: Option<MetaStats>,
 }
 
 pub struct Stats<'a> {
@@ -94,31 +94,76 @@ impl<'a> Stats<'a> {
       instances: Set(0),
       runtime_hours: Set(0.0),
       last_updated: Set(now),
+      meta: Set(None),
     };
 
     Ok(stats.insert(self.db).await?)
   }
 
-  pub async fn update_from_telemetry(
-    &self,
-    tg_user_id: i64,
-    stats: &SystemStats,
-    instances: u32,
-  ) -> Result<()> {
-    let model = self.get_or_create(tg_user_id).await?;
-    let now = Utc::now().naive_utc();
+  pub async fn process_metric(&self, raw_base64: &str) -> Result<()> {
+    let compressed = base64::prelude::BASE64_STANDARD
+      .decode(raw_base64)
+      .map_err(|_| Error::InvalidArgs("Invalid base64".into()))?;
 
-    stats::ActiveModel {
-      weekly_xp: Set(model.weekly_xp + stats.farming.xp_gained as i64),
-      total_xp: Set(model.total_xp + stats.farming.xp_gained as i64),
-      drops_count: Set(model.drops_count + stats.farming.drops as i32),
-      runtime_hours: Set(model.runtime_hours + stats.uptime as f64 / 3600.0),
-      instances: Set(instances as i32),
-      last_updated: Set(now),
-      ..model.into()
+    let mut decoder = GzDecoder::new(&compressed[..]);
+    let mut json_str = String::new();
+    decoder.read_to_string(&mut json_str).map_err(|e| {
+      Error::InvalidArgs(format!("Decompression failed: {}", e))
+    })?;
+
+    let payload: MetricPayload = json::from_str(&json_str)
+      .map_err(|e| Error::InvalidArgs(format!("Invalid JSON: {}", e)))?;
+
+    let license = sv::License::new(self.db)
+      .by_key(&payload.license_key)
+      .await?
+      .ok_or(Error::LicenseNotFound)?;
+
+    let stats = self.get_or_create(license.tg_user_id).await?;
+    let mut meta: MetaStats = match &stats.meta {
+      Some(val) => json::from_value(val.clone()).unwrap_or_default(),
+      None => MetaStats::default(),
+    };
+
+    let event_json = json!({
+      "type": payload.event_type,
+      "data": payload.data
+    });
+
+    let event: MetricEvent = json::from_value(event_json).map_err(|e| {
+      Error::InvalidArgs(format!("Unknown event format: {}", e))
+    })?;
+
+    let mut model: stats::ActiveModel = stats.clone().into();
+
+    match event {
+      MetricEvent::Shutdown { uptime } => {
+        model.runtime_hours = Set(stats.runtime_hours + (uptime / 3600.0));
+      }
+      MetricEvent::State { state, duration } => {
+        *meta.states.entry(state).or_insert(0.0) += duration;
+      }
+      MetricEvent::Srt { routes } => {
+        meta.network.routes = routes;
+      }
+      MetricEvent::Performance { avg_fps, avg_ram_mb, avg_ai_ms } => {
+        if let Some(fps) = avg_fps {
+          meta.performance.avg_fps = fps;
+        }
+        if let Some(ram) = avg_ram_mb {
+          meta.performance.avg_ram_mb = ram;
+        }
+        if let Some(ai) = avg_ai_ms {
+          meta.performance.avg_ai_ms = ai;
+        }
+      }
     }
-    .update(self.db)
-    .await?;
+
+    let now = Utc::now().naive_utc();
+    model.last_updated = Set(now);
+    model.meta = Set(Some(json::to_value(meta).unwrap()));
+
+    model.update(self.db).await?;
 
     Ok(())
   }
@@ -129,27 +174,18 @@ impl<'a> Stats<'a> {
   ) -> Result<UserStatsDisplay> {
     let stats = self.get_or_create(tg_user_id).await?;
 
+    let meta: Option<MetaStats> =
+      stats.meta.map(|v| json::from_value(v).unwrap_or_default());
+
     Ok(UserStatsDisplay {
       weekly_xp: stats.weekly_xp as u64,
       total_xp: stats.total_xp as u64,
       drops_count: stats.drops_count as u32,
       instances: stats.instances as u32,
       runtime_hours: stats.runtime_hours,
+      meta,
     })
   }
-
-  pub fn decompress_stats(compressed: &[u8]) -> Result<SystemStats> {
-    let mut decoder = GzDecoder::new(compressed);
-    let mut decompressed = String::new();
-    decoder.read_to_string(&mut decompressed).map_err(|e| {
-      Error::Internal(format!("Failed to decompress stats: {}", e))
-    })?;
-
-    json::from_str(&decompressed).map_err(|e| {
-      Error::Internal(format!("Failed to parse stats JSON: {}", e))
-    })
-  }
-
   pub async fn reset_weekly_xp(db: &DatabaseConnection) -> Result<()> {
     use sea_orm::sea_query::Expr;
 

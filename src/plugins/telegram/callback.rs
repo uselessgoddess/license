@@ -105,14 +105,41 @@ async fn handle_profile_view(
   );
 
   if let Some(s) = stats {
+    // Базовая стата
     text.push_str(&format!(
       "\n\n<b>📊 Farming Stats:</b>\n\
-      Weekly XP: {}\n\
-      Total XP: {}\n\
-      Drops: {}\n\
-      Runtime: {:.1}h",
+        Weekly XP: {}\n\
+        Total XP: {}\n\
+        Drops: {}\n\
+        Runtime: {:.1}h",
       s.weekly_xp, s.total_xp, s.drops_count, s.runtime_hours
     ));
+
+    if let Some(meta) = s.meta {
+      if !meta.network.routes.is_empty() {
+        text.push_str(&format!(
+          "\n🌐 <b>Routes:</b> {}",
+          meta.network.routes.join(", ")
+        ));
+      }
+
+      if meta.performance.avg_fps > 0.0 {
+        text.push_str(&format!(
+          "\n🚀 <b>Perf:</b> {:.0} FPS | {} MB",
+          meta.performance.avg_fps, meta.performance.avg_ram_mb
+        ));
+      }
+
+      let mut states: Vec<_> = meta.states.clone().into_iter().collect();
+      states.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+
+      if let Some((top_state, duration)) = states.first() {
+        text.push_str(&format!(
+          "\n⏳ <b>Top State:</b> {top_state} ({:.1}h)",
+          *duration / 3600.0
+        ));
+      }
+    }
   }
 
   bot.edit_with_keyboard(text, back_keyboard()).await?;

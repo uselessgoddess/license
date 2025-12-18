@@ -1,3 +1,4 @@
+use json::Value;
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -14,6 +15,8 @@ pub struct Model {
   pub runtime_hours: f64,
   pub instances: i32,
   pub last_updated: DateTime,
+  /// json stats metadata
+  pub meta: Option<Value>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

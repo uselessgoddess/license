@@ -101,9 +101,10 @@ async fn fetch_free_app_ids(client: &Client) -> anyhow::Result<Vec<u32>> {
   for element in document.select(&selector) {
     if let Some(attr) = element.value().attr("data-ds-appid")
       && let Some(first_part) = attr.split(',').next()
-        && let Ok(id) = first_part.trim().parse::<u32>() {
-          ids.push(id);
-        }
+      && let Ok(id) = first_part.trim().parse::<u32>()
+    {
+      ids.push(id);
+    }
   }
   Ok(ids)
 }
@@ -119,14 +120,15 @@ async fn get_free_game_details(
 
   if let Some(details) = resp.get(&app_id.to_string())
     && details.success
-      && let Some(data) = &details.data {
-        for group in &data.package_groups {
-          for sub in &group.subs {
-            if sub.price_in_cents_with_discount == 0 {
-              return Ok(Some((sub.packageid, data.name.clone())));
-            }
-          }
+    && let Some(data) = &details.data
+  {
+    for group in &data.package_groups {
+      for sub in &group.subs {
+        if sub.price_in_cents_with_discount == 0 {
+          return Ok(Some((sub.packageid, data.name.clone())));
         }
       }
+    }
+  }
   Ok(None)
 }
