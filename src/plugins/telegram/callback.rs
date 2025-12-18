@@ -1,5 +1,6 @@
 use std::{path::Path, sync::Arc};
 
+use reqwest::Url;
 use teloxide::{
   prelude::*,
   types::{InlineKeyboardButton, InlineKeyboardMarkup},
@@ -11,16 +12,21 @@ use crate::{
   state::{AppState, Services},
 };
 
+// TODO: use struct or enum
 const CB_PROFILE: &str = "profile";
 const CB_LICENSE: &str = "license";
 const CB_TRIAL: &str = "trial";
 const CB_DOWNLOAD: &str = "download";
+const CB_BUY: &str = "buy";
+const CB_PAY_MANUAL: &str = "pay_man";
+// const CB_PAY_CRYPTO: &str = "pay_cry";
 const CB_BACK: &str = "back";
 
 pub fn main_menu(is_promo: bool) -> InlineKeyboardMarkup {
   let mut rows = vec![
     vec![InlineKeyboardButton::callback("👤 My Profile", CB_PROFILE)],
     vec![InlineKeyboardButton::callback("🔑 My License", CB_LICENSE)],
+    vec![InlineKeyboardButton::callback("💳 Buy License", CB_BUY)],
     vec![InlineKeyboardButton::callback("📥 Download Panel", CB_DOWNLOAD)],
   ];
 
@@ -32,6 +38,14 @@ pub fn main_menu(is_promo: bool) -> InlineKeyboardMarkup {
   }
 
   InlineKeyboardMarkup::new(rows)
+}
+
+fn payment_method_menu() -> InlineKeyboardMarkup {
+  InlineKeyboardMarkup::new(vec![
+    vec![InlineKeyboardButton::callback("👤 Manual Purchase", CB_PAY_MANUAL)],
+    // vec![InlineKeyboardButton::callback("CryptoBot (Auto)", CB_PAY_CRYPTO)],
+    vec![InlineKeyboardButton::callback("« Back to Menu", CB_BACK)],
+  ])
 }
 
 fn back_keyboard() -> InlineKeyboardMarkup {
@@ -68,6 +82,27 @@ pub async fn handle(
           .edit_with_keyboard("You have no active license!", back_keyboard())
           .await?;
       }
+    }
+    CB_BUY => {
+      let text = "💳 <b>Purchase License</b>\n\n\
+        Select a payment method below.";
+      bot.edit_with_keyboard(text, payment_method_menu()).await?;
+    }
+    CB_PAY_MANUAL => {
+      let text = "👤 <b>Manual Purchase</b>\n\n\
+        To purchase a license via USDT or other methods, please contact our support:\n\n\
+        👉 @y_a_c_s_p\n\n\
+        <i>Send a message with \"I want to buy license\"</i>";
+
+      let kb = InlineKeyboardMarkup::new(vec![
+        vec![InlineKeyboardButton::url(
+          "Open Chat with Support",
+          Url::parse("https://t.me/y_a_c_s_p").expect("invalid link, what???"),
+        )],
+        vec![InlineKeyboardButton::callback("« Back", CB_BUY)],
+      ]);
+
+      bot.edit_with_keyboard(text, kb).await?;
     }
     CB_BACK => {
       let text = "<b>Yet Another Counter Strike Panel!</b>\n\n\

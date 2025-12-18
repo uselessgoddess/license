@@ -8,7 +8,11 @@ use teloxide::{
 };
 
 use super::ReplyBot;
-use crate::{entity::license::LicenseType, prelude::*, state::AppState};
+use crate::{
+  entity::license::LicenseType,
+  prelude::*,
+  state::{AppState, Services},
+};
 
 fn parse_publish(
   input: String,
@@ -84,6 +88,133 @@ pub async fn handle(
   Ok(())
 }
 
+async fn process_info_command(
+  sv: &Services<'_>,
+  app: &AppState,
+  bot: &ReplyBot,
+  input: String,
+) -> Result<String> {
+  let input = input.trim();
+  if input.is_empty() {
+    return Err(Error::InvalidArgs(
+      "Usage: /info <license_key | user_id>".into(),
+    ));
+  }
+
+  if let Ok(user_id) = input.parse::<i64>() {
+    let user = sv.user.by_id(user_id).await?.ok_or(Error::UserNotFound)?;
+    let username = bot.infer_username(ChatId(user_id)).await;
+    let stats = sv.stats.display_stats(user_id).await?;
+    let licenses = sv.license.by_user(user_id, true).await?;
+
+    let mut total_active_sessions = 0;
+    let mut lic_text = String::new();
+
+    for lic in &licenses {
+      let active = app.sessions.get(&lic.key).map(|s| s.len()).unwrap_or(0);
+      total_active_sessions += active;
+
+      let status_icon = if lic.is_blocked {
+        "⛔"
+      } else if lic.expires_at < Utc::now().naive_utc() {
+        "❌"
+      } else if active > 0 {
+        "🟢"
+      } else {
+        "⚪"
+      };
+
+      lic_text.push_str(&format!(
+        "{} <code>{}</code> ({:?})\n",
+        status_icon, lic.key, lic.license_type
+      ));
+    }
+
+    return Ok(format!(
+      "👤 <b>User Info</b>\n\
+      ID: <code>{}</code>\n\
+      Name: {}\n\
+      Registered: {}\n\n\
+      📊 <b>Global Stats</b>\n\
+      XP (Week/Total): {} / {}\n\
+      Runtime: {:.1}h\n\
+      Total Sessions: {}\n\n\
+      🔑 <b>Licenses ({})</b>\n\
+      {}",
+      user.tg_user_id,
+      username,
+      utils::format_date(user.reg_date),
+      stats.weekly_xp,
+      stats.total_xp,
+      stats.runtime_hours,
+      total_active_sessions,
+      licenses.len(),
+      if lic_text.is_empty() { "No licenses" } else { &lic_text }
+    ));
+  }
+
+  let key = input;
+  let license = sv.license.by_key(key).await?.ok_or(Error::LicenseNotFound)?;
+  let username = bot.infer_username(ChatId(license.tg_user_id)).await;
+
+  let sessions = app.sessions.get(key);
+  let active_count = sessions.as_ref().map(|s| s.len()).unwrap_or(0);
+  let now = Utc::now().naive_utc();
+
+  let status = if license.is_blocked {
+    "⛔ BLOCKED"
+  } else if license.expires_at < now {
+    "❌ EXPIRED"
+  } else if active_count > 0 {
+    "🟢 ONLINE"
+  } else {
+    "⚪ OFFLINE"
+  };
+
+  let duration_left = if license.expires_at > now {
+    utils::format_duration(license.expires_at - now)
+  } else {
+    "0d 0h".to_string()
+  };
+
+  let mut text = format!(
+    "🔑 <b>License Info</b>\n\n\
+    <b>Key:</b> <code>{}</code>\n\
+    <b>Type:</b> {:?}\n\
+    <b>Status:</b> {}\n\
+    <b>Owner:</b> {} (<code>{}</code>)\n\n\
+    📅 <b>Timeline</b>\n\
+    Created: {}\n\
+    Expires: {} (in {})\n\n\
+    🖥 <b>Sessions ({}/{})</b>\n",
+    license.key,
+    license.license_type,
+    status,
+    username,
+    license.tg_user_id,
+    utils::format_date(license.created_at),
+    utils::format_date(license.expires_at),
+    duration_left,
+    active_count,
+    license.max_sessions
+  );
+
+  if let Some(sess_list) = sessions {
+    for (i, s) in sess_list.iter().enumerate() {
+      text.push_str(&format!(
+        " {}. ID: <code>{}...</code>\n    HWID: <code>{}</code>\n",
+        i + 1,
+        &s.session_id.chars().take(8).collect::<String>(),
+        s.hwid_hash.as_deref().unwrap_or("Unknown")
+      ));
+    }
+  } else if active_count == 0 {
+    text.push_str(" <i>No active sessions</i>");
+  }
+
+  Ok(text)
+}
+
 async fn handle_admin_command(
   app: Arc<AppState>,
   bot: ReplyBot,
@@ -92,7 +223,7 @@ async fn handle_admin_command(
   let sv = app.sv();
 
   if let Command::Users = cmd {
-    let users = match sv.user.all().await {
+    let users_data = match sv.user.all_with_licenses().await {
       Ok(u) => u,
       Err(e) => {
         bot.reply_html(format!("❌ DB Error: {}", e)).await?;
@@ -100,35 +231,81 @@ async fn handle_admin_command(
       }
     };
 
-    if users.is_empty() {
-      bot.reply_html("There is no users.").await?;
+    if users_data.is_empty() {
+      bot.reply_html("📭 Database is empty.").await?;
       return Ok(());
     }
 
     bot
-      .reply_html(format!("⏳ Found {} users. Getting names...", users.len()))
+      .reply_html(format!("⏳ Loading data for {} users...", users_data.len()))
       .await?;
 
-    let username_futures = users.into_iter().map(|u| {
+    let user_futures = users_data.into_iter().map(|(u, licenses)| {
       let bot = bot.clone();
-      async move { bot.infer_username(ChatId(u.tg_user_id)).await }
+      async move {
+        let username = bot.infer_username(ChatId(u.tg_user_id)).await;
+        (u, username, licenses)
+      }
     });
 
-    let usernames = future::join_all(username_futures).await;
+    let resolved_users = future::join_all(user_futures).await;
 
-    let mut response_text =
-      format!("<b>👥 Registered users (Total: {}):</b>\n\n", usernames.len());
-    for (i, username) in usernames.iter().enumerate() {
-      let line = format!("{}. {}\n", i + 1, username);
-      // Защита от слишком длинного сообщения (лимит Telegram ~4096 символов)
-      if response_text.len() + line.len() > 4096 {
-        response_text.push_str("etc. (list is to long).");
+    let mut text =
+      format!("👥 <b>Users List (Total: {})</b>\n\n", resolved_users.len());
+    let now = Utc::now().naive_utc();
+
+    for (i, (user, username, licenses)) in resolved_users.iter().enumerate() {
+      text.push_str(&format!(
+        "<b>{}. {}</b> <code>{}</code>\n",
+        i + 1,
+        username,
+        user.tg_user_id
+      ));
+
+      if licenses.is_empty() {
+        text.push_str("   └─ <i>No licenses</i>\n");
+      }
+
+      for (j, lic) in licenses.iter().enumerate() {
+        let is_last = j == licenses.len() - 1;
+        let branch = if is_last { "└─" } else { "├─" };
+
+        let (icon, status_text) = if lic.is_blocked {
+          ("⛔", "BLOCKED".to_string())
+        } else if lic.expires_at < now {
+          ("❌", "Expired".to_string())
+        } else {
+          match app.sessions.get(&lic.key) {
+            Some(sessions) if !sessions.is_empty() => {
+              ("🟢", format!("Online ({})", sessions.len()))
+            }
+            _ => ("⚪", "Offline".to_string()),
+          }
+        };
+
+        let short_key =
+          if lic.key.len() > 8 { &lic.key[..8] } else { &lic.key };
+
+        text.push_str(&format!(
+          "   {} {} <b>{:?}</b> [{}]\n   │  <code>{}...</code> | {}\n",
+          branch,
+          icon,
+          lic.license_type,
+          status_text,
+          short_key,
+          utils::format_date(lic.expires_at)
+        ));
+      }
+
+      text.push_str("\n");
+
+      if text.len() > 3800 {
+        text.push_str("<i>...list truncated (too long)...</i>");
         break;
       }
-      response_text.push_str(&line);
     }
 
-    bot.reply_html(response_text).await?;
+    bot.reply_html(text).await?;
     return Ok(());
   }
 
@@ -176,27 +353,7 @@ async fn handle_admin_command(
       .await
       .map(|_| "✅ Key unblocked".into()),
 
-    Command::Info(key) => {
-      async {
-        let active = app.sessions.get(&key).map(|s| s.len()).unwrap_or(0);
-        let license =
-          sv.license.by_key(&key).await?.ok_or(Error::LicenseNotFound)?;
-        let status =
-          if license.is_blocked { "⛔ BLOCKED" } else { "✅ Active" };
-        let username = bot.infer_username(ChatId(license.tg_user_id)).await;
-        Ok(format!(
-          "🔑 <b>Key Info</b>\n\
-        Owner: {username}\n\
-        Type: {:?}\n\
-        Expires: {}\n\
-        Status: {status}\n\
-        Active Sessions: {active}",
-          license.license_type,
-          utils::format_date(license.expires_at),
-        ))
-      }
-      .await
-    }
+    Command::Info(input) => process_info_command(&sv, &app, &bot, input).await,
     Command::Backup => {
       if app.perform_backup(bot.chat_id).await.is_err() {
         bot.send_document(InputFile::file("licenses.db")).await?;

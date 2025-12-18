@@ -1,4 +1,7 @@
-use crate::{entity::user, prelude::*};
+use crate::{
+  entity::{license, user},
+  prelude::*,
+};
 
 pub struct User<'a> {
   db: &'a DatabaseConnection,
@@ -28,9 +31,21 @@ impl<'a> User<'a> {
     Ok(user)
   }
 
+  #[allow(dead_code)]
   pub async fn all(&self) -> Result<Vec<user::Model>> {
     let users = user::Entity::find()
       .order_by_asc(user::Column::RegDate)
+      .all(self.db)
+      .await?;
+    Ok(users)
+  }
+
+  pub async fn all_with_licenses(
+    &self,
+  ) -> Result<Vec<(user::Model, Vec<license::Model>)>> {
+    let users = user::Entity::find()
+      .order_by_asc(user::Column::RegDate)
+      .find_with_related(license::Entity)
       .all(self.db)
       .await?;
     Ok(users)
