@@ -48,11 +48,7 @@ pub async fn run_bot(app: Arc<AppState>) {
       }
     }));
 
-  Dispatcher::builder(bot, handler)
-    .enable_ctrlc_handler()
-    .build()
-    .dispatch()
-    .await;
+  Dispatcher::builder(bot, handler).build().dispatch().await;
 }
 
 async fn callback_handle(

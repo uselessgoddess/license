@@ -18,7 +18,7 @@ axum = { version = "0.8", features = ["macros"] }
 tower = { version = "0.5", features = ["util", "limit"] }
 tower-http = { version = "0.6", features = ["trace", "cors"] }
 tower_governor = "0.8"
-teloxide = { version = "0.17", features = ["macros"] }
+teloxide = { version = "0.17", default-features = false, features = ["rustls", "macros"] }
 
 wreq = { version = "5.3", features = ["json"] }
 wreq-util = { version = "2.2" }
