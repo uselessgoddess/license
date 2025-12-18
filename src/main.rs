@@ -57,6 +57,7 @@ async fn main() {
     .register(cron::StatsClean)
     //
     .register(steam::FreeGames)
+    .register(steam::FreeRewards)
     //
     .register(telegram::Plugin)
     .register(server::Plugin)

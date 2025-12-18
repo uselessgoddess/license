@@ -39,6 +39,7 @@ impl super::Plugin for Plugin {
       .route("/api/metrics", post(handlers::submit_metrics))
       // TODO: split configuration
       .route("/api/cache/steam/free-games", get(steam::free_games))
+      .route("/api/cache/steam/free-items", get(steam::free_items))
       .layer(
         ServiceBuilder::new()
           .layer(TraceLayer::new_for_http())

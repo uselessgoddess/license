@@ -7,6 +7,7 @@ mod m20251214_000004_create_builds;
 mod m20251214_000005_create_claimed_promos;
 mod m20251214_000006_create_free_games;
 mod m20251218_000007_add_detailed_stats;
+mod m20251218_000009_create_free_items;
 
 pub struct Migrator;
 
@@ -21,6 +22,7 @@ impl MigratorTrait for Migrator {
       Box::new(m20251214_000005_create_claimed_promos::Migration),
       Box::new(m20251214_000006_create_free_games::Migration),
       Box::new(m20251218_000007_add_detailed_stats::Migration),
+      Box::new(m20251218_000009_create_free_items::Migration),
     ]
   }
 }

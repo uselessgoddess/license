@@ -4,7 +4,12 @@ use reqwest::Client;
 use scraper::{Html, Selector};
 use serde::Deserialize;
 
-use crate::{plugins::Plugin, prelude::*, state::AppState};
+use crate::{entity::free_item, plugins::Plugin, prelude::*, state::AppState};
+
+// TODO: configure user agent
+const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) \
+                          AppleWebKit/537.36 (KHTML, like Gecko) \
+                          Chrome/91.0.4472.124 Safari/537.36";
 
 #[derive(Debug, Deserialize)]
 struct AppDetailsResponse {
@@ -39,11 +44,6 @@ pub struct FreeGames;
 impl Plugin for FreeGames {
   async fn start(&self, app: Arc<AppState>) -> anyhow::Result<()> {
     time::sleep(Duration::from_secs(10)).await;
-
-    // TODO: configure user agent
-    const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) \
-                              AppleWebKit/537.36 (KHTML, like Gecko) \
-                              Chrome/91.0.4472.124 Safari/537.36";
 
     let client = Client::builder().user_agent(USER_AGENT).build()?;
 
@@ -131,4 +131,86 @@ async fn get_free_game_details(
     }
   }
   Ok(None)
+}
+
+pub struct FreeRewards;
+
+#[derive(Debug, Deserialize)]
+struct SihItem {
+  appid: i32,
+  defid: i32,
+  community_item_data: Data,
+}
+
+#[derive(Debug, Deserialize)]
+struct Data {
+  item_name: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct Sih {
+  data: Vec<SihItem>,
+}
+
+#[async_trait]
+impl Plugin for FreeRewards {
+  async fn start(&self, app: Arc<AppState>) -> anyhow::Result<()> {
+    time::sleep(Duration::from_secs(10)).await;
+
+    loop {
+      info!("Syncing Steam Free Rewards (SIH)...");
+
+      match fetch_sih_rewards().await {
+        Ok(items) => {
+          let count = items.len();
+          info!("Found {} free items. Updating DB...", count);
+
+          if let Err(e) = app.sv().steam.replace_free_items_cache(items).await {
+            error!("Failed to update DB cache (Items): {}", e);
+          } else {
+            info!("Items cache updated successfully.");
+          }
+        }
+        Err(err) => {
+          error!("SIH sync failed: {err:?}");
+        }
+      }
+
+      // Синхронизация раз в 6 часов
+      time::sleep(Duration::from_secs(6 * 3600)).await;
+    }
+  }
+}
+
+async fn fetch_sih_rewards() -> anyhow::Result<Vec<free_item::Model>> {
+  use wreq::Client;
+  use wreq_util::Emulation;
+
+  let client = Client::builder().emulation(Emulation::Firefox136).build()?;
+
+  let resp = client
+    .get("https://api.steaminventoryhelper.com/steam-free-rewards")
+    .header("x-sih-version", "2.8.13")
+    .header("Referer", "https://steaminventoryhelper.com/")
+    .header("Origin", "chrome-extension://cmeakGJFHOIJFIO")
+    .send()
+    .await?
+    .error_for_status()? // Превратит 403 в ошибку, которую мы увидим в логах
+    .json::<Sih>()
+    .await?;
+
+  let now = Utc::now().naive_utc();
+
+  let models = resp
+    .data
+    .into_iter()
+    .map(|i| free_item::Model {
+      def_id: i.defid,
+      app_id: i.appid,
+      name: i.community_item_data.item_name,
+      updated_at: now,
+    })
+    .collect();
+
+  Ok(models)
 }
