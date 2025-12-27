@@ -28,6 +28,8 @@ pub enum Error {
   BuildNotFound,
   #[error("Build already yanked")]
   BuildInactive,
+  #[error("Build already active")]
+  BuildAlreadyActive,
   #[error("Invalid arguments: {0}")]
   InvalidArgs(String),
   #[error("DB error: {0}")]
@@ -52,6 +54,7 @@ impl Error {
       }
       Error::BuildNotFound => "Build not found".into(),
       Error::BuildInactive => "Build is already yanked".into(),
+      Error::BuildAlreadyActive => "Build is already active".into(),
       Error::InvalidArgs(msg) => msg.clone(),
       Error::Database(e) => format!("Database error: {}", e),
       Error::Io(e) => format!("IO error: {}", e),
@@ -82,6 +85,9 @@ impl IntoResponse for Error {
       }
       Error::BuildNotFound => (StatusCode::NOT_FOUND, "Build not found"),
       Error::BuildInactive => (StatusCode::BAD_REQUEST, "Build already yanked"),
+      Error::BuildAlreadyActive => {
+        (StatusCode::BAD_REQUEST, "Build already active")
+      }
       Error::InvalidArgs(msg) => (StatusCode::BAD_REQUEST, msg.as_str()),
       Error::Io(_) => (StatusCode::INTERNAL_SERVER_ERROR, "IO error"),
       Error::Internal(_) => {

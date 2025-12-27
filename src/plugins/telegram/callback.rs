@@ -12,27 +12,76 @@ use crate::{
   state::{AppState, Services},
 };
 
-const CB_PROFILE: &str = "profile";
-const CB_LICENSE: &str = "license";
-const CB_TRIAL: &str = "trial";
-const CB_DOWNLOAD: &str = "download";
-const CB_DL_VER: &str = "dl_ver:"; // download specific version
-const CB_BUY: &str = "buy";
-const CB_PAY_MANUAL: &str = "pay_man";
-const CB_BACK: &str = "back";
+/// Callback data enum - provides type-safe callback handling
+#[derive(Debug, Clone, PartialEq)]
+pub enum Callback {
+  Profile,
+  License,
+  Trial,
+  Download,
+  DownloadVersion(String),
+  Buy,
+  PayManual,
+  Back,
+}
+
+impl Callback {
+  /// Serialize callback to string for Telegram API
+  pub fn to_data(&self) -> String {
+    match self {
+      Callback::Profile => "profile".to_string(),
+      Callback::License => "license".to_string(),
+      Callback::Trial => "trial".to_string(),
+      Callback::Download => "download".to_string(),
+      Callback::DownloadVersion(v) => format!("dl_ver:{}", v),
+      Callback::Buy => "buy".to_string(),
+      Callback::PayManual => "pay_man".to_string(),
+      Callback::Back => "back".to_string(),
+    }
+  }
+
+  /// Parse callback from string received from Telegram API
+  pub fn from_data(data: &str) -> Option<Self> {
+    match data {
+      "profile" => Some(Callback::Profile),
+      "license" => Some(Callback::License),
+      "trial" => Some(Callback::Trial),
+      "download" => Some(Callback::Download),
+      "buy" => Some(Callback::Buy),
+      "pay_man" => Some(Callback::PayManual),
+      "back" => Some(Callback::Back),
+      _ if data.starts_with("dl_ver:") => {
+        Some(Callback::DownloadVersion(data[7..].to_string()))
+      }
+      _ => None,
+    }
+  }
+}
 
 pub fn main_menu(is_promo: bool) -> InlineKeyboardMarkup {
   let mut rows = vec![
-    vec![InlineKeyboardButton::callback("👤 My Profile", CB_PROFILE)],
-    vec![InlineKeyboardButton::callback("🔑 My License", CB_LICENSE)],
-    vec![InlineKeyboardButton::callback("💳 Buy License", CB_BUY)],
-    vec![InlineKeyboardButton::callback("📥 Download Panel", CB_DOWNLOAD)],
+    vec![InlineKeyboardButton::callback(
+      "👤 My Profile",
+      Callback::Profile.to_data(),
+    )],
+    vec![InlineKeyboardButton::callback(
+      "🔑 My License",
+      Callback::License.to_data(),
+    )],
+    vec![InlineKeyboardButton::callback(
+      "💳 Buy License",
+      Callback::Buy.to_data(),
+    )],
+    vec![InlineKeyboardButton::callback(
+      "📥 Download Panel",
+      Callback::Download.to_data(),
+    )],
   ];
 
   if is_promo {
     rows.push(vec![InlineKeyboardButton::callback(
       "🆓 Get Free Trial",
-      CB_TRIAL,
+      Callback::Trial.to_data(),
     )]);
   }
 
@@ -41,16 +90,22 @@ pub fn main_menu(is_promo: bool) -> InlineKeyboardMarkup {
 
 fn payment_method_menu() -> InlineKeyboardMarkup {
   InlineKeyboardMarkup::new(vec![
-    vec![InlineKeyboardButton::callback("👤 Manual Purchase", CB_PAY_MANUAL)],
+    vec![InlineKeyboardButton::callback(
+      "👤 Manual Purchase",
+      Callback::PayManual.to_data(),
+    )],
     // vec![InlineKeyboardButton::callback("CryptoBot (Auto)", CB_PAY_CRYPTO)],
-    vec![InlineKeyboardButton::callback("« Back to Menu", CB_BACK)],
+    vec![InlineKeyboardButton::callback(
+      "« Back to Menu",
+      Callback::Back.to_data(),
+    )],
   ])
 }
 
 fn back_keyboard() -> InlineKeyboardMarkup {
   InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
     "« Back to Menu",
-    CB_BACK,
+    Callback::Back.to_data(),
   )]])
 }
 
@@ -61,17 +116,21 @@ pub async fn handle(
 ) -> ResponseResult<()> {
   let sv = app.sv();
 
-  match data {
-    CB_PROFILE => {
+  let Some(callback) = Callback::from_data(data) else {
+    return Ok(());
+  };
+
+  match callback {
+    Callback::Profile => {
       handle_profile_view(&sv, &bot).await?;
     }
-    CB_LICENSE => {
+    Callback::License => {
       handle_license_edit(&sv, &bot).await?;
     }
-    CB_TRIAL => {
+    Callback::Trial => {
       handle_trial_claim(&sv, &bot).await?;
     }
-    CB_DOWNLOAD => {
+    Callback::Download => {
       if let Ok(keys) = sv.license.by_user(bot.chat_id.0, false).await
         && !keys.is_empty()
       {
@@ -82,12 +141,12 @@ pub async fn handle(
           .await?;
       }
     }
-    CB_BUY => {
+    Callback::Buy => {
       let text = "💳 <b>Purchase License</b>\n\n\
         Select a payment method below.";
       bot.edit_with_keyboard(text, payment_method_menu()).await?;
     }
-    CB_PAY_MANUAL => {
+    Callback::PayManual => {
       let text = "👤 <b>Manual Purchase</b>\n\n\
         To purchase a license via USDT or other methods, please contact our support:\n\n\
         👉 @y_a_c_s_p\n\n\
@@ -98,12 +157,12 @@ pub async fn handle(
           "Open Chat with Support",
           Url::parse("https://t.me/y_a_c_s_p").expect("invalid link, what???"),
         )],
-        vec![InlineKeyboardButton::callback("« Back", CB_BUY)],
+        vec![InlineKeyboardButton::callback("« Back", Callback::Buy.to_data())],
       ]);
 
       bot.edit_with_keyboard(text, kb).await?;
     }
-    CB_BACK => {
+    Callback::Back => {
       let text = "<b>Yet Another Counter Strike Panel!</b>\n\n\
         Use the buttons below to navigate.\n\
         Read docs: https://yacsp.gitbook.io/yacsp\n\
@@ -112,11 +171,9 @@ pub async fn handle(
         .edit_with_keyboard(text, main_menu(sv.license.is_promo_active()))
         .await?;
     }
-    _ if data.starts_with(CB_DL_VER) => {
-      let version = &data[CB_DL_VER.len()..];
-      handle_download_version(&sv, &bot, &app, version).await?;
+    Callback::DownloadVersion(version) => {
+      handle_download_version(&sv, &bot, &app, &version).await?;
     }
-    _ => {}
   }
 
   Ok(())
@@ -282,10 +339,13 @@ async fn handle_download(
     };
     rows.push(vec![InlineKeyboardButton::callback(
       label,
-      format!("{}{}", CB_DL_VER, build.version),
+      Callback::DownloadVersion(build.version.clone()).to_data(),
     )]);
   }
-  rows.push(vec![InlineKeyboardButton::callback("« Back to Menu", CB_BACK)]);
+  rows.push(vec![InlineKeyboardButton::callback(
+    "« Back to Menu",
+    Callback::Back.to_data(),
+  )]);
 
   let text = "📥 <b>Select Version</b>\n\n\
     Choose which version to download:";

@@ -79,6 +79,21 @@ impl<'a> Build<'a> {
     Ok(())
   }
 
+  /// Reactivate (un-yank) a previously yanked build
+  pub async fn activate(&self, version: &str) -> Result<()> {
+    let build = build::Entity::find()
+      .filter(build::Column::Version.eq(version))
+      .one(self.db)
+      .await?
+      .ok_or(Error::BuildNotFound)?;
+
+    build::ActiveModel { is_active: Set(true), ..build.into() }
+      .update(self.db)
+      .await?;
+
+    Ok(())
+  }
+
   pub async fn all(&self) -> Result<Vec<build::Model>> {
     let builds = build::Entity::find()
       .order_by_desc(build::Column::CreatedAt)

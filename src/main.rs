@@ -16,6 +16,71 @@ use tracing_subscriber::{
 
 use crate::{plugins::*, prelude::*, state::AppState};
 
+/// Validate required environment variables and return detailed error messages
+fn validate_env() -> Result<(), String> {
+  let mut missing: Vec<&str> = Vec::new();
+  let mut invalid: Vec<String> = Vec::new();
+
+  // Required variables
+  if env::var("ADMIN_IDS").is_err() {
+    missing.push("ADMIN_IDS");
+  } else {
+    let admin_ids = env::var("ADMIN_IDS").unwrap();
+    if admin_ids.trim().is_empty() {
+      invalid.push("ADMIN_IDS: cannot be empty".to_string());
+    } else {
+      for (i, id) in admin_ids.split(',').enumerate() {
+        if !id.trim().is_empty() && id.trim().parse::<i64>().is_err() {
+          invalid.push(format!(
+            "ADMIN_IDS: invalid integer at position {} ('{}')",
+            i + 1,
+            id.trim()
+          ));
+          break;
+        }
+      }
+    }
+  }
+
+  if env::var("TELOXIDE_TOKEN").is_err() {
+    missing.push("TELOXIDE_TOKEN");
+  }
+
+  if env::var("SERVER_SECRET").is_err() {
+    missing.push("SERVER_SECRET");
+  }
+
+  if !missing.is_empty() || !invalid.is_empty() {
+    let mut msg = String::new();
+    if !missing.is_empty() {
+      msg.push_str(&format!(
+        "Missing environment variables: {}\n",
+        missing.join(", ")
+      ));
+    }
+    if !invalid.is_empty() {
+      msg.push_str(&format!(
+        "Invalid environment variables:\n  {}\n",
+        invalid.join("\n  ")
+      ));
+    }
+    msg.push_str("\nRequired environment variables:\n");
+    msg.push_str(
+      "  ADMIN_IDS      - Comma-separated list of Telegram admin user IDs\n",
+    );
+    msg.push_str("  TELOXIDE_TOKEN - Telegram Bot API token\n");
+    msg.push_str("  SERVER_SECRET  - Secret key for server authentication\n");
+    msg.push_str("\nOptional environment variables:\n");
+    msg.push_str("  DATABASE_URL   - SQLite database URL (default: sqlite:licenses.db?mode=rwc)\n");
+    msg.push_str(
+      "  BASE_URL       - Server base URL (default: http://localhost:3000)\n",
+    );
+    return Err(msg);
+  }
+
+  Ok(())
+}
+
 #[tokio::main]
 async fn main() {
   dotenvy::dotenv().ok();
@@ -26,6 +91,12 @@ async fn main() {
     }))
     .with(tracing_subscriber::fmt::layer())
     .init();
+
+  // Validate environment variables before proceeding
+  if let Err(msg) = validate_env() {
+    eprintln!("❌ Configuration error:\n\n{}", msg);
+    std::process::exit(1);
+  }
 
   let admins: HashSet<i64> = env::var("ADMIN_IDS")
     .expect("ADMIN_IDS not set")

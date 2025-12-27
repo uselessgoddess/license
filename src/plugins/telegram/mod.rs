@@ -100,6 +100,29 @@ impl ReplyBot {
       .await
   }
 
+  /// Send a potentially long message by splitting it into chunks if needed.
+  /// Returns the last message sent, or error if any chunk fails.
+  async fn reply_html_chunked(
+    &self,
+    text: impl Into<String>,
+  ) -> ResponseResult<Message> {
+    let chunks = utils::chunk_message(&text.into(), 0);
+    let mut last_msg = None;
+
+    for chunk in chunks {
+      last_msg = Some(
+        self
+          .inner
+          .send_message(self.chat_id, chunk)
+          .parse_mode(ParseMode::Html)
+          .await?,
+      );
+    }
+
+    // chunks is never empty, so last_msg is always Some
+    Ok(last_msg.unwrap())
+  }
+
   async fn reply_with_keyboard(
     &self,
     text: impl Into<String>,

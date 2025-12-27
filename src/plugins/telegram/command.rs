@@ -58,9 +58,13 @@ pub enum Command {
   },
   /// Yank (remove from downloads) a build version
   Yank(String),
+  /// Un-yank (reactivate) a previously yanked build
+  Unyank(String),
   /// Alias for /yank (deprecated)
   #[command(hide)]
   Deactivate(String),
+  /// Admin stats - show global XP/drops summary
+  GlobalStats,
 }
 
 const ADMIN_HELP: &str = "\
@@ -77,10 +81,12 @@ const ADMIN_HELP: &str = "\
 /builds - List all builds
 /publish &lt;file&gt; &lt;ver&gt; [log] - Publish new build
 /yank &lt;version&gt; - Remove build from downloads
+/unyank &lt;version&gt; - Reactivate yanked build
 
 <b>System:</b>
 /users - List all registered users
 /stats - Show active sessions count
+/globalstats - Show global XP/drops summary
 /backup - Manual database backup
 /help - Show this message";
 
@@ -328,23 +334,17 @@ async fn handle_admin_command(
         }
       };
 
-      let line = format!(
+      text.push_str(&format!(
         "<b>{}.</b> {} {} <code>{}</code>\n",
         i + 1,
         status_icon,
         username,
         user.tg_user_id
-      );
-
-      if text.len() + line.len() > 4000 {
-        text.push_str("\n<i>...list truncated (too many users)...</i>");
-        break;
-      }
-
-      text.push_str(&line);
+      ));
     }
 
-    bot.reply_html(text).await?;
+    // Use chunked reply to handle long user lists
+    bot.reply_html_chunked(text).await?;
     return Ok(());
   }
 
@@ -464,6 +464,45 @@ async fn handle_admin_command(
         <b>Version:</b> {}\n\
         <b>Downloads:</b> {}",
           build.version, build.downloads
+        ))
+      }
+      .await
+    }
+
+    Command::Unyank(version) => {
+      async {
+        let build =
+          sv.build.by_version(&version).await?.ok_or(Error::BuildNotFound)?;
+        if build.is_active {
+          return Err(Error::BuildAlreadyActive);
+        }
+        sv.build.activate(&version).await?;
+        Ok(format!(
+          "✅ Build reactivated (available for downloads).\n\n\
+        <b>Version:</b> {}\n\
+        <b>Downloads:</b> {}",
+          build.version, build.downloads
+        ))
+      }
+      .await
+    }
+
+    Command::GlobalStats => {
+      async {
+        let stats = sv.stats.aggregate().await?;
+        Ok(format!(
+          "📊 <b>Global Stats</b>\n\n\
+          <b>XP:</b>\n\
+          Weekly: {}\n\
+          Total: {}\n\n\
+          <b>Drops:</b> {}\n\
+          <b>Runtime:</b> {:.1}h\n\
+          <b>Active instances:</b> {}",
+          stats.weekly_xp,
+          stats.total_xp,
+          stats.total_drops,
+          stats.total_runtime_hours,
+          stats.active_instances
         ))
       }
       .await
