@@ -74,7 +74,11 @@ impl<'a> License<'a> {
     Ok(license)
   }
 
-  pub async fn expires(&self, key: &str, days: i64) -> Result<DateTime> {
+  pub async fn expires(
+    &self,
+    key: &str,
+    duration: Duration,
+  ) -> Result<DateTime> {
     let txn = self.db.begin().await?;
 
     let license = license::Entity::find_by_id(key)
@@ -82,8 +86,8 @@ impl<'a> License<'a> {
       .await?
       .ok_or(Error::LicenseNotFound)?;
 
-    let new_exp =
-      Utc::now().naive_utc() + Duration::from_hours(24 * days as u64);
+    let delta = TimeDelta::from_std(duration).unwrap_or(TimeDelta::zero());
+    let new_exp = Utc::now().naive_utc() + delta;
 
     license::ActiveModel {
       expires_at: Set(new_exp),
@@ -241,7 +245,10 @@ mod tests {
     let license = sv.create(12345, LicenseType::Trial, 1).await.unwrap();
 
     let old_exp = license.expires_at;
-    let new_exp = sv.expires(&license.key, 30).await.unwrap();
+    let new_exp = sv
+      .expires(&license.key, Duration::from_secs(30 * 24 * 60 * 60))
+      .await
+      .unwrap();
 
     assert!(new_exp > old_exp);
   }

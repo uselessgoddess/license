@@ -1,4 +1,4 @@
-use std::{path::Path, sync::Arc};
+use std::{path::Path, sync::Arc, time::Duration};
 
 use futures::future;
 use teloxide::{
@@ -31,6 +31,33 @@ fn parse_publish(
   Ok((filename, version, changelog))
 }
 
+fn parse_buy(
+  input: String,
+) -> std::result::Result<(String, Duration), ParseError> {
+  let mut parts = input.splitn(2, ' ');
+  let key = parts.next().unwrap_or_default().to_string();
+  let duration_str = parts.next().unwrap_or_default().to_string();
+
+  if key.is_empty() || duration_str.is_empty() {
+    return Err(ParseError::IncorrectFormat(
+      "Usage: /buy <key> <duration>\nExamples: /buy abc123 30d, /buy abc123 2w, /buy abc123 1h30m"
+        .into(),
+    ));
+  }
+
+  let duration = humantime::parse_duration(&duration_str).map_err(|e| {
+    ParseError::IncorrectFormat(
+      format!(
+        "Invalid duration '{}': {}\nExamples: 30d, 2w, 1h30m, 7days",
+        duration_str, e
+      )
+      .into(),
+    )
+  })?;
+
+  Ok((key, duration))
+}
+
 #[derive(BotCommands, Clone)]
 #[command(rename_rule = "lowercase")]
 pub enum Command {
@@ -39,10 +66,10 @@ pub enum Command {
   Help,
   Users,
   Gen(String),
-  #[command(parse_with = "split")]
+  #[command(parse_with = parse_buy)]
   Buy {
     key: String,
-    days: i64,
+    duration: Duration,
   },
   Ban(String),
   Unban(String),
@@ -72,7 +99,7 @@ const ADMIN_HELP: &str = "\
 
 <b>License Management:</b>
 /gen &lt;user_id&gt; [days] - Generate new license
-/buy &lt;key&gt; &lt;days&gt; - Extend license duration
+/buy &lt;key&gt; &lt;duration&gt; - Extend license (e.g. 30d, 2w, 1h30m)
 /ban &lt;key&gt; - Block license and drop sessions
 /unban &lt;key&gt; - Unblock license
 /info &lt;key|user_id&gt; - Show license or user details
@@ -369,10 +396,11 @@ async fn handle_admin_command(
       }
     }
 
-    Command::Buy { key, days } => {
-      sv.license.expires(&key, days).await.map(|new_exp| {
+    Command::Buy { key, duration } => {
+      sv.license.expires(&key, duration).await.map(|new_exp| {
+        let duration_str = humantime::format_duration(duration);
         format!(
-          "✅ Key expires after {days} days.\nNew expiry: <code>{}</code>",
+          "✅ Key expires after {duration_str}.\nNew expiry: <code>{}</code>",
           utils::format_date(new_exp)
         )
       })

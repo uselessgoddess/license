@@ -1,0 +1,29 @@
+#!/bin/sh
+# Pre-commit hook that runs fmt, clippy, and test to avoid CI failures
+
+set -e
+
+echo "Running pre-commit checks..."
+
+# Check formatting
+echo ">> Checking formatting..."
+cargo fmt --check || {
+    echo "Formatting check failed. Run 'cargo fmt' to fix."
+    exit 1
+}
+
+# Run clippy
+echo ">> Running clippy..."
+cargo clippy --all-targets -- -D warnings || {
+    echo "Clippy check failed. Fix the warnings above."
+    exit 1
+}
+
+# Run tests
+echo ">> Running tests..."
+cargo test --all-targets || {
+    echo "Tests failed. Fix the failing tests above."
+    exit 1
+}
+
+echo "All checks passed!"
