@@ -156,13 +156,11 @@ impl<'a> Build<'a> {
       .await?
       .ok_or(Error::BuildNotFound)?;
 
-    // Remove file from disk if it exists
     let path = Path::new(&build.file_path);
     if path.exists() {
       fs::remove_file(path).await.ok();
     }
 
-    // Delete from database
     build::Entity::delete_by_id(build.id).exec(self.db).await?;
 
     Ok(build)
