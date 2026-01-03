@@ -43,11 +43,7 @@ pub struct Config {
   pub backup_hours: u64,
   pub download_token_lifetime: i64,
   pub base_url: String,
-  /// Minimum free disk space in bytes before triggering yanked builds GC.
-  /// Default: 500MB (enough for ~2 releases at ~230MB each)
   pub gc_min_free_space: u64,
-  /// Interval in seconds for checking disk space and triggering GC.
-  /// Default: 60 seconds
   pub gc_check_interval_secs: u64,
 }
 
