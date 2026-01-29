@@ -8,6 +8,7 @@ use axum::{
   response::IntoResponse,
 };
 use serde::{Deserialize, Serialize};
+use tokio::io::BufReader;
 use tokio_util::io::ReaderStream;
 
 use crate::{
@@ -199,16 +200,27 @@ pub async fn download(
     }
   };
 
+  let metadata = match file.metadata().await {
+    Ok(m) => m,
+    Err(_) => {
+      return Err((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "Failed to read metadata",
+      ));
+    }
+  };
+  let file_size = metadata.len();
+
   let filename = path
     .file_name()
     .and_then(|n| n.to_str())
     .unwrap_or("download.bin")
     .to_string();
 
-  let stream = ReaderStream::new(file);
+  let reader = BufReader::with_capacity(64 * 1024, file);
+  let stream = ReaderStream::new(reader);
   let body = Body::from_stream(stream);
 
-  // Increment download counter
   let _ = app.sv().build.increment_downloads(&version).await;
 
   let headers = [
@@ -217,6 +229,7 @@ pub async fn download(
       header::CONTENT_DISPOSITION,
       format!("attachment; filename=\"{}\"", filename),
     ),
+    (header::CONTENT_LENGTH, file_size.to_string()),
   ];
 
   Ok((headers, body))
