@@ -1,6 +1,6 @@
 [package]
 name = "license"
-version = "0.0.0"
+version = "0.1.0"
 edition = "2024"
 
 [dependencies]
@@ -16,7 +16,7 @@ sea-orm = { version = "1.1", features = [
 
 axum = { version = "0.8", features = ["macros"] }
 tower = { version = "0.5", features = ["util", "limit"] }
-tower-http = { version = "0.6", features = ["trace", "cors"] }
+tower-http = { version = "0.6", features = ["fs", "trace", "cors"] }
 tower_governor = "0.8"
 teloxide = { version = "0.17", default-features = false, features = ["rustls", "macros"] }
 

@@ -1,7 +1,7 @@
 mod handlers;
 mod steam;
 
-use std::{net::SocketAddr, sync::Arc};
+use std::{fs, net::SocketAddr, sync::Arc};
 
 use async_trait::async_trait;
 use axum::{
@@ -12,6 +12,7 @@ use tower::ServiceBuilder;
 use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
 use tower_http::{
   cors::{Any, CorsLayer},
+  services::ServeDir,
   trace::TraceLayer,
 };
 
@@ -32,12 +33,19 @@ impl super::Plugin for Plugin {
 
     let limiter = governor_conf.limiter().clone();
 
+    if !fs::exists("models")? {
+      info!("Creating missing ./models directory");
+      let _ = fs::create_dir("models");
+    }
+
     let router = Router::new()
       .route("/health", get(handlers::health))
       .route("/api/download", get(handlers::download))
       .route("/api/heartbeat", post(handlers::heartbeat))
       .route("/api/logout", post(handlers::logout))
       .route("/api/metrics", post(handlers::submit_metrics))
+      .nest_service("/api/models", ServeDir::new("models"))
+      .layer(TraceLayer::new_for_http())
       // TODO: split configuration
       .route("/api/cache/steam/free-games", get(steam::free_games))
       .route("/api/cache/steam/free-items", get(steam::free_items))
