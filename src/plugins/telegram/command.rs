@@ -222,6 +222,8 @@ pub async fn handle(
 ) -> ResponseResult<()> {
   let sv = app.sv();
 
+  let is_first = sv.user.by_id(bot.user_id).await?.is_none();
+
   let _ = sv.user.get_or_create(bot.user_id).await;
 
   match &cmd {
@@ -229,7 +231,7 @@ pub async fn handle(
       let ref_code = ref_code.trim();
 
       // If a referral code is provided via deep link, try to apply it automatically
-      if !ref_code.is_empty() {
+      if is_first && !ref_code.is_empty() {
         let user = sv.user.by_id(bot.user_id).await.ok().flatten();
         let already_has_referrer =
           user.as_ref().is_some_and(|u| u.referred_by.is_some());
