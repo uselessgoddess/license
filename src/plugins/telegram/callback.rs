@@ -972,13 +972,17 @@ async fn handle_buy_plan(
     .await
   {
     Ok(new_balance) => {
-      // If user was referred and this is NOT a trial, process referral commission
       if !is_trial && let Some(referrer_id) = referred_by {
-        let _ = sv.referral.record_sale(referrer_id, price).await;
-        // Add commission to referrer's balance
-        let referrer_user = sv.user.by_id(referrer_id).await.ok().flatten();
-        if let Some(referrer) = referrer_user {
-          let commission = price * referrer.commission_rate as i64 / 100;
+        let already_paid = sv
+          .referral
+          .was_commission_paid(referrer_id, bot.user_id)
+          .await
+          .unwrap_or(true); // TODO: its better to prevent radom false commision shares
+
+        if !already_paid
+          && let Ok(commission) =
+            sv.referral.record_sale(referrer_id, price).await
+        {
           let _ = sv
             .balance
             .add_referral_bonus(referrer_id, commission, bot.user_id)
@@ -1583,7 +1587,6 @@ async fn handle_extend_plan(
   {
     Ok(new_balance) => {
       if let Some(referrer_id) = referred_by {
-        let _ = sv.referral.record_sale(referrer_id, price).await;
         let referrer_user = sv.user.by_id(referrer_id).await.ok().flatten();
         if let Some(referrer) = referrer_user {
           let commission = price * referrer.commission_rate as i64 / 100;

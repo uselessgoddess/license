@@ -1,5 +1,8 @@
 use crate::{
-  entity::{user, user::UserRole},
+  entity::{
+    TransactionType, transaction,
+    user::{self, UserRole},
+  },
   prelude::*,
 };
 
@@ -67,14 +70,22 @@ impl<'a> Referral<'a> {
     Ok(referrer.tg_user_id)
   }
 
-  /// Record a sale made through a referrer
-  /// Returns the commission amount in nanoUSDT
-  /// All users receive commission on their balance
-  pub async fn record_sale(
+  pub async fn was_commission_paid(
     &self,
     referrer_id: i64,
-    sale_amount: i64,
-  ) -> Result<i64> {
+    buyer_id: i64,
+  ) -> Result<bool> {
+    let count = transaction::Entity::find()
+      .filter(transaction::Column::UserId.eq(referrer_id)) // Кто получил бонус
+      .filter(transaction::Column::TxType.eq(TransactionType::ReferralBonus)) // Тип транзакции
+      .filter(transaction::Column::ReferrerId.eq(buyer_id)) // За кого (источник)
+      .count(self.db)
+      .await?;
+
+    Ok(count > 0)
+  }
+
+  pub async fn record_sale(&self, referrer_id: i64, price: i64) -> Result<i64> {
     let txn = self.db.begin().await?;
 
     let referrer = user::Entity::find_by_id(referrer_id)
@@ -82,12 +93,11 @@ impl<'a> Referral<'a> {
       .await?
       .ok_or(Error::ReferralNotFound)?;
 
-    let commission = (sale_amount * referrer.commission_rate as i64) / 100;
+    let commission = (price * referrer.commission_rate as i64) / 100;
 
     user::ActiveModel {
       referral_sales: Set(referrer.referral_sales + 1),
       referral_earnings: Set(referrer.referral_earnings + commission),
-      balance: Set(referrer.balance + commission),
       ..referrer.into()
     }
     .update(&txn)
@@ -265,7 +275,7 @@ mod tests {
       user::Entity::find_by_id(12345i64).one(&db).await.unwrap().unwrap();
     assert_eq!(user.referral_sales, 1);
     assert_eq!(user.referral_earnings, 2_500_000);
-    assert_eq!(user.balance, 2_500_000);
+    assert_eq!(user.balance, 0);
   }
 
   #[tokio::test]
@@ -299,7 +309,7 @@ mod tests {
       user::Entity::find_by_id(12345i64).one(&db).await.unwrap().unwrap();
     assert_eq!(user.referral_sales, 1);
     assert_eq!(user.referral_earnings, 2_500_000);
-    assert_eq!(user.balance, 2_500_000);
+    assert_eq!(user.balance, 0); // does not update balance 
   }
 
   #[tokio::test]

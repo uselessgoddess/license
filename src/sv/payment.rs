@@ -4,7 +4,7 @@ use crate::{
   sv::{
     balance::Balance,
     cryptobot::{CryptoBot, InvoiceStatus},
-    referral::{NANO_USDT, Referral},
+    referral::NANO_USDT,
   },
 };
 
@@ -117,12 +117,6 @@ impl<'a> Payment<'a> {
               Some(format!("CryptoBot deposit #{}", pending_inv.invoice_id)),
             )
             .await?;
-
-          if let Some(referrer_id) = pending_inv.referrer_id {
-            let referral = Referral::new(self.db);
-            let _ =
-              referral.record_sale(referrer_id, pending_inv.amount_nano).await;
-          }
 
           self.delete_pending(pending_inv.invoice_id).await?;
 

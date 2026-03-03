@@ -222,7 +222,12 @@ pub async fn handle(
 ) -> ResponseResult<()> {
   let sv = app.sv();
 
-  let is_first = sv.user.by_id(bot.user_id).await?.is_none();
+  let is_first = sv
+    .user
+    .by_id(bot.user_id)
+    .await
+    .map(|user| user.is_none())
+    .unwrap_or(false); // prevent double checking 
 
   let _ = sv.user.get_or_create(bot.user_id).await;
 
