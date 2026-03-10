@@ -11,7 +11,10 @@ use crate::{
   entity::user::UserRole,
   prelude::*,
   state::{AppState, Services},
-  sv::referral::{NANO_USDT, ReferralStats},
+  sv::{
+    Op,
+    referral::{NANO_USDT, ReferralStats},
+  },
 };
 
 /// Callback data enum - provides type-safe callback handling
@@ -1598,7 +1601,7 @@ async fn handle_extend_plan(
       }
 
       let duration = Duration::from_secs(days * 24 * 60 * 60);
-      match sv.license.expires(key, duration).await {
+      match sv.license.expires(key, Op::Set, duration).await {
         Ok(new_exp) => {
           let text = format!(
             "✅ <b>License Extended!</b>\n\n\

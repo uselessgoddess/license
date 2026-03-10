@@ -4,6 +4,7 @@ pub use crate::prelude::*;
 use crate::{
   entity::{LicenseType, license, promo},
   sv,
+  sv::Op,
 };
 
 pub struct License<'a> {
@@ -109,6 +110,7 @@ impl<'a> License<'a> {
   pub async fn expires(
     &self,
     key: &str,
+    op: Op,
     duration: Duration,
   ) -> Result<DateTime> {
     let txn = self.db.begin().await?;
@@ -119,7 +121,11 @@ impl<'a> License<'a> {
       .ok_or(Error::LicenseNotFound)?;
 
     let delta = TimeDelta::from_std(duration).unwrap_or(TimeDelta::zero());
-    let new_exp = Utc::now().naive_utc() + delta;
+    let new_exp = match op {
+      Op::Add => license.expires_at + delta,
+      Op::Sub => license.expires_at - delta,
+      Op::Set => Utc::now().naive_utc() + delta,
+    };
 
     license::ActiveModel {
       expires_at: Set(new_exp),
@@ -300,7 +306,7 @@ mod tests {
 
     let old_exp = license.expires_at;
     let new_exp = sv
-      .expires(&license.key, Duration::from_secs(30 * 24 * 60 * 60))
+      .expires(&license.key, Op::Set, Duration::from_secs(30 * 24 * 60 * 60))
       .await
       .unwrap();
 

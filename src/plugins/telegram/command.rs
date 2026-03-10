@@ -9,10 +9,13 @@ use teloxide::{
 
 use super::ReplyBot;
 use crate::{
-  entity::{license::LicenseType, user::UserRole},
+  entity::{
+    license::{self, LicenseType},
+    user::UserRole,
+  },
   prelude::*,
   state::{AppState, Services},
-  sv::referral::NANO_USDT,
+  sv::{Op, referral::NANO_USDT},
 };
 
 fn parse_publish(
@@ -32,40 +35,46 @@ fn parse_publish(
   Ok((filename, version, changelog))
 }
 
+pub fn parse_op(input: &str) -> Result<(Op, &str), ParseError> {
+  if let Some(strip) = input.strip_prefix('+') {
+    Ok((Op::Add, strip))
+  } else if let Some(stripped) = input.strip_prefix('-') {
+    Ok((Op::Sub, stripped))
+  } else if let Some(stripped) = input.strip_prefix('=') {
+    Ok((Op::Set, stripped))
+  } else {
+    Err(ParseError::IncorrectFormat("expercted `+`, `-` or `=`".into()))
+  }
+}
+
+fn parse_duration(input: &str) -> Result<Duration, ParseError> {
+  humantime::parse_duration(input).map_err(|e| {
+    ParseError::IncorrectFormat(
+      format!("Invalid duration '{input}': {e}").into(),
+    )
+  })
+}
+
 fn parse_buy(
   input: String,
-) -> std::result::Result<(Option<String>, Duration), ParseError> {
+) -> Result<(Option<String>, Op, Duration), ParseError> {
   let parts: Vec<&str> = input.split_whitespace().collect();
 
   match parts.as_slice() {
     // /buy <duration> - generate new license
-    [duration_str] => {
-      let duration = humantime::parse_duration(duration_str).map_err(|e| {
-        ParseError::IncorrectFormat(
-          format!(
-            "Invalid duration '{}': {}\nUsage: /buy <duration> or /buy <key> <duration>\nExamples: 30d, 2w, 1h30m",
-            duration_str, e
-          )
-          .into(),
-        )
-      })?;
-      Ok((None, duration))
+    [duration] => {
+      let (op, duration) = parse_op(duration)?;
+      let duration = parse_duration(duration)?;
+      Ok((None, op, duration))
     }
     // /buy <key> <duration> - extend existing license
-    [key, duration_str] => {
-      let duration = humantime::parse_duration(duration_str).map_err(|e| {
-        ParseError::IncorrectFormat(
-          format!(
-            "Invalid duration '{}': {}\nExamples: 30d, 2w, 1h30m, 7days",
-            duration_str, e
-          )
-          .into(),
-        )
-      })?;
-      Ok((Some(key.to_string()), duration))
+    [key, duration] => {
+      let (op, duration) = parse_op(duration)?;
+      let duration = parse_duration(duration)?;
+      Ok((Some(key.to_string()), op, duration))
     }
     _ => Err(ParseError::IncorrectFormat(
-      "Usage:\n/buy <duration> - Generate new license\n/buy <key> <duration> - Extend existing license\nExamples: /buy 30d, /buy abc123 2w"
+      "Usage:\n/buy <duration> - Generate new license\n/buy <key> <duration> - Extend existing license\nExamples: /buy =30d, /buy <license> +2w"
         .into(),
     )),
   }
@@ -155,6 +164,7 @@ pub enum Command {
   #[command(parse_with = parse_buy)]
   Buy {
     key: Option<String>,
+    op: Op,
     duration: Duration,
   },
   Ban(String),
@@ -693,26 +703,24 @@ async fn handle_admin_command(
   }
 
   let result: Result<String> = match cmd {
-    Command::Buy { key, duration } => {
+    Command::Buy { key, op, duration } => {
       let duration_str = humantime::format_duration(duration);
       match key {
         // /buy <duration> - generate new license for admin
         None => {
           let days = duration.as_secs() / 86400;
           sv.license.create_gift(LicenseType::Pro, days).await.map(
-            |l| {
+            |license::Model { key,expires_at , .. } | {
               format!(
-                "✅ Key created ({}):\n<code>{}</code>\n\
+                "✅ Key created ({duration_str}):\n<code>{key}</code>\n\
                 Expires: {}",
-                duration_str,
-                l.key,
-                utils::format_date(l.expires_at)
+                utils::format_date(expires_at)
               )
             },
           )
         }
         // /buy <key> <duration> - extend existing license
-        Some(key) => sv.license.expires(&key, duration).await.map(|new_exp| {
+        Some(key) => sv.license.expires(&key, op, duration).await.map(|new_exp| {
           format!(
             "✅ Key extended by {}.\nNew expiry: <code>{}</code>",
             duration_str,
