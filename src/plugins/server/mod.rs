@@ -45,6 +45,7 @@ impl super::Plugin for Plugin {
       .route("/api/logout", post(handlers::logout))
       .route("/api/metrics", post(handlers::submit_metrics))
       .nest_service("/api/models", ServeDir::new("models"))
+      .nest_service("/api/data", ServeDir::new("data"))
       .layer(TraceLayer::new_for_http())
       // TODO: split configuration
       .route("/api/cache/steam/free-games", get(steam::free_games))
