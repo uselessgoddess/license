@@ -14,7 +14,7 @@ sea-orm = { version = "1.1", features = [
     "with-uuid",
 ] }
 
-axum = { version = "0.8", features = ["macros"] }
+axum = { version = "0.8", features = ["macros", "multipart"] }
 tower = { version = "0.5", features = ["util", "limit"] }
 tower-http = { version = "0.6", features = ["fs", "trace", "cors"] }
 tower_governor = "0.8"
@@ -23,7 +23,7 @@ teloxide = { version = "0.17", default-features = false, features = ["rustls", "
 wreq = { version = "5.3", features = ["json"] }
 wreq-util = { version = "2.2" }
 
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "multipart"] }
 scraper = { version = "0.25" }
 
 tokio = { version = "1", features = ["full"] }

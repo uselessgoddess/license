@@ -1,11 +1,13 @@
 mod handlers;
 mod steam;
+mod telegram_proxy;
 
 use std::{fs, net::SocketAddr, sync::Arc};
 
 use async_trait::async_trait;
 use axum::{
   Router,
+  extract::DefaultBodyLimit,
   routing::{get, post},
 };
 use tower::ServiceBuilder;
@@ -33,12 +35,29 @@ impl super::Plugin for Plugin {
 
     let limiter = governor_conf.limiter().clone();
 
+    let telegram_governor_conf = Arc::new(
+      GovernorConfigBuilder::default()
+        .per_second(20)
+        .burst_size(50)
+        .finish()
+        .context("Failed to build telegram rate limiter config")?,
+    );
+
+    let telegram_limiter = telegram_governor_conf.limiter().clone();
+
+    let telegram_routes = Router::new()
+      .route("/send-message", post(telegram_proxy::send_message))
+      .route("/send-photo", post(telegram_proxy::send_photo))
+      .layer(DefaultBodyLimit::max(32 * 1024 * 1024))
+      .layer(GovernorLayer::new(telegram_governor_conf));
+
     if !fs::exists("models")? {
       info!("Creating missing ./models directory");
       let _ = fs::create_dir("models");
     }
 
     let router = Router::new()
+      .nest("/api/telegram", telegram_routes)
       .route("/health", get(handlers::health))
       .route("/api/download", get(handlers::download))
       .route("/api/heartbeat", post(handlers::heartbeat))
@@ -75,6 +94,7 @@ impl super::Plugin for Plugin {
       loop {
         tokio::time::sleep(Duration::from_secs(60)).await;
         limiter.retain_recent();
+        telegram_limiter.retain_recent();
       }
     };
 
