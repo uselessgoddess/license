@@ -57,6 +57,7 @@ pub struct Config {
   pub base_url: String,
   pub gc_min_free_space: u64,
   pub gc_check_interval_secs: u64,
+  pub proxy_port: u16,
 }
 
 impl Default for Config {
@@ -70,6 +71,7 @@ impl Default for Config {
       base_url: String::from("http://localhost:3000"),
       gc_min_free_space: 500 * 1024 * 1024, // 500MB
       gc_check_interval_secs: 60,
+      proxy_port: 1080,
     }
   }
 }
@@ -100,6 +102,8 @@ pub struct AppState {
   pub cryptobot: Option<sv::cryptobot::CryptoBot>,
   // Backup deduplication
   backup_hash: AtomicU64,
+  // proxy
+  pub active_proxy_sessions: DashMap<String, usize>,
 }
 
 // TODO: we need to transactions too
@@ -160,6 +164,7 @@ impl AppState {
       config,
       cryptobot,
       backup_hash: AtomicU64::new(0),
+      active_proxy_sessions: DashMap::new(),
     }
   }
 

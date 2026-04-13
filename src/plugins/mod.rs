@@ -1,4 +1,5 @@
 pub mod cron;
+pub mod proxy;
 pub mod server;
 pub mod steam;
 pub mod telegram;

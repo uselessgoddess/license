@@ -143,6 +143,7 @@ async fn main() {
     //
     .register(telegram::Plugin)
     .register(server::Plugin)
+    .register(proxy::Plugin)
     .run(app_state)
     .await;
 
