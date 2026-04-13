@@ -483,7 +483,7 @@ async fn process_info_command(
   let input = input.trim();
   if input.is_empty() {
     return Err(Error::InvalidArgs(
-      "Usage: /info [license_key | user_id]".into()
+      "Usage: /info [license_key | user_id]".into(),
     ));
   }
 
