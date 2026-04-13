@@ -5,6 +5,7 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
+use dashmap::Entry;
 use tokio::{
   io::{self, AsyncReadExt, AsyncWriteExt},
   net::{TcpListener, TcpStream},
@@ -43,15 +44,24 @@ async fn handle_session(
   mut client: TcpStream,
   app: Arc<AppState>,
 ) -> Result<()> {
-  let (username, _hwid) = socks5_auth_handshake(&mut client).await?;
+  let handshake_future = async {
+    let (username, _hwid) = socks5_auth_handshake(&mut client).await?;
+    if app.sv().license.validate(&username).await.is_err() {
+      client.write_all(&[0x01, 0x01]).await?;
+      bail!("Invalid license for user: {}", username);
+    }
+    client.write_all(&[0x01, 0x00]).await?;
 
-  if app.sv().license.validate(&username).await.is_err() {
-    client.write_all(&[0x01, 0x01]).await?; // Auth Failed
-    bail!("Invalid license for user: {}", username);
-  }
-  client.write_all(&[0x01, 0x00]).await?; // Auth Success
+    socks5_read_target(&mut client)
+      .await
+      .map(|(host, port)| (username, host, port))
+  };
 
-  let (host, port) = socks5_read_target(&mut client).await?;
+  let (username, host, port) =
+    tokio::time::timeout(std::time::Duration::from_secs(10), handshake_future)
+      .await
+      .context("Proxy handshake timed out")??;
+
   trace!("Target requested: {}:{}", host, port);
 
   let mut upstream =
@@ -160,12 +170,15 @@ impl SessionGuard {
 
 impl Drop for SessionGuard {
   fn drop(&mut self) {
-    self.app.active_proxy_sessions.entry(self.key.clone()).and_modify(|c| {
-      if *c > 1 {
-        *c -= 1;
-      } else {
-        self.app.active_proxy_sessions.remove(&self.key);
+    match self.app.active_proxy_sessions.entry(self.key.clone()) {
+      Entry::Occupied(mut entry) => {
+        if *entry.get() > 1 {
+          *entry.get_mut() -= 1;
+        } else {
+          entry.remove();
+        }
       }
-    });
+      Entry::Vacant(_) => {}
+    }
   }
 }
