@@ -688,12 +688,14 @@ async fn handle_admin_command(
         }
       };
 
+      let balance_str = format_usdt(user.balance);
       text.push_str(&format!(
-        "<b>{}.</b> {} {} <code>{}</code>\n",
+        "<b>{}.</b> {} {} <code>{}</code> | {}\n",
         i + 1,
         status_icon,
         username,
-        user.tg_user_id
+        user.tg_user_id,
+        balance_str
       ));
     }
 
